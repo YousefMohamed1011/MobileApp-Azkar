@@ -1,24 +1,68 @@
 {
   "expo": {
-    "name": "Azkar",
-    "slug": "Azkar",
+    "name": "مُذكِّر وتَسبيح",
+    "slug": "azkar-reminder",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
+    "updates": {
+      "url": "https://u.expo.dev/c682aff3-29a1-4eb2-96a6-40e19b825bfb"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.azkar.reminder",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification"
+        ],
+        "NSLocationWhenInUseUsageDescription": "نحتاج إلى موقعك الجغرافي لتحديد اتجاه القبلة بدقة نحو الكعبة المشرفة."
+      }
     },
     "android": {
+      "package": "com.azkar.reminder",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0F683D",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "POST_NOTIFICATIONS",
+        "VIBRATE",
+        "SCHEDULE_EXACT_ALARM",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0F683D",
+          "defaultChannel": "silent_dhikr_channel"
+        }
+      ],
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "نحتاج إلى موقعك الجغرافي لتحديد اتجاه القبلة بدقة نحو الكعبة المشرفة."
+        }
+      ]
+    ],
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "c682aff3-29a1-4eb2-96a6-40e19b825bfb"
+      }
     }
   }
 }

@@ -1,20 +1,2059 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  Modal,
+  Alert,
+  Animated,
+  Platform,
+  SafeAreaView,
+  StatusBar as RNStatusBar,
+  Dimensions,
+  Switch,
+  ActivityIndicator,
+} from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Notifications from 'expo-notifications';
+import * as Updates from 'expo-updates';
+import * as Location from 'expo-location';
+import { Magnetometer } from 'expo-sensors';
+import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+
+const { width } = Dimensions.get('window');
+
+// 1. إعداد سلوك الإشعارات لتكون صامتة تماماً (قراءة بصرية فقط بدون صوت أو اهتزاز)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+});
+
+const NOTIFICATION_CHANNEL_ID = 'silent_dhikr_channel';
+
+// إحداثيات الكعبة المشرفة في مكة المكرمة
+const KAABA_COORDS = {
+  latitude: 21.422487,
+  longitude: 39.826206,
+};
+
+// قائمة مدن افتراضية في حال تعذر الحصول على الـ GPS
+const PRESET_CITIES = [
+  { name: 'القاهرة، مصر', lat: 30.0444, lng: 31.2357 },
+  { name: 'الرياض، السعودية', lat: 24.7136, lng: 46.6753 },
+  { name: 'مكة المكرمة', lat: 21.3891, lng: 39.8579 },
+  { name: 'المدينة المنورة', lat: 24.5247, lng: 39.5692 },
+  { name: 'دبي، الإمارات', lat: 25.2048, lng: 55.2708 },
+  { name: 'عمان، الأردن', lat: 31.9454, lng: 35.9284 },
+  { name: 'بغداد، العراق', lat: 33.3152, lng: 44.3661 },
+  { name: 'الخرطوم، السودان', lat: 15.5007, lng: 32.5599 },
+  { name: 'طرابلس، ليبيا', lat: 32.8872, lng: 13.1913 },
+  { name: 'تونس، تونس', lat: 36.8065, lng: 10.1815 },
+  { name: 'الجزائر، الجزائر', lat: 36.7538, lng: 3.0588 },
+  { name: 'الرباط، المغرب', lat: 34.0209, lng: -6.8416 },
+  { name: 'إسطنبول، تركيا', lat: 41.0082, lng: 28.9784 },
+];
+
+// قائمة الأذكار الأساسية الافتراضية
+const DEFAULT_ADHKAR = [
+  {
+    id: '1',
+    text: 'سُبْحَانَ اللَّهِ وَبِحَمْدِهِ ، سُبْحَانَ اللَّهِ الْعَظِيمِ',
+    virtue: 'حبيبتان إلى الرحمن، خفيفتان على اللسان، ثقيلتان في الميزان',
+    isCustom: false,
+  },
+  {
+    id: '2',
+    text: 'اللَّهُمَّ صَلِّ وَسَلِّمْ وَبَارِكْ عَلَى نَبِيِّنَا مُحَمَّدٍ',
+    virtue: 'من صلى عليّ صلاة صلى الله عليه بها عشراً',
+    isCustom: false,
+  },
+  {
+    id: '3',
+    text: 'أَسْتَغْفِرُ اللَّهَ الْعَظِيمَ وَأَتُوبُ إِلَيْهِ',
+    virtue: 'من لزم الاستغفار جعل الله له من كل هم فرجاً ومن كل ضيق مخرجاً',
+    isCustom: false,
+  },
+  {
+    id: '4',
+    text: 'لَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ الْعَلِيِّ الْعَظِيمِ',
+    virtue: 'كنز من كنوز الجنة ودواء لتسعة وتسعين داء أيسرها الهم',
+    isCustom: false,
+  },
+  {
+    id: '5',
+    text: 'سُبْحَانَ اللَّهِ ، وَالْحَمْدُ لِلَّهِ ، وَلَا إِلَهَ إِلَّا اللَّهُ ، وَاللَّهُ أَكْبَرُ',
+    virtue: 'الباقيات الصالحات وأحب الكلام إلى الله تعالى',
+    isCustom: false,
+  },
+  {
+    id: '6',
+    text: 'لَا إِلَهَ إِلَّا أَنْتَ سُبْحَانَكَ إِنِّي كُنْتُ مِنَ الظَّالِمِينَ',
+    virtue: 'دعوة ذي النون ما دعا بها مسلم في شيء إلا استجاب الله له',
+    isCustom: false,
+  },
+  {
+    id: '7',
+    text: 'حَسْبُنَا اللَّهُ وَنِعْمَ الْوَكِيلُ',
+    virtue: 'أمان لكل خائف وتفويض الأمر لكافي المهمات سبحانه',
+    isCustom: false,
+  },
+  {
+    id: '8',
+    text: 'يَا حَيُّ يَا قَيُّومُ بِرَحْمَتِكَ أَسْتَغِيثُ',
+    virtue: 'سؤال الله باسمه الأعظم وأصل تفريج الكربات',
+    isCustom: false,
+  },
+];
+
+const STORAGE_KEYS = {
+  CURRENT_COUNT: '@azkar_current_count',
+  TOTAL_COUNT: '@azkar_total_count',
+  SELECTED_INDEX: '@azkar_selected_index',
+  CUSTOM_ADHKAR: '@azkar_custom_adhkar',
+  DARK_MODE: '@azkar_dark_mode',
+  NOTIF_ENABLED: '@azkar_notif_enabled',
+  NOTIF_INTERVAL: '@azkar_notif_interval',
+};
 
 export default function App() {
+  // حالة التطبيق العامة
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [activeTab, setActiveTab] = useState('tasbeeh'); // 'tasbeeh' | 'qibla' | 'notifications'
+  
+  // حالة السبحة
+  const [count, setCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
+  const [adhkarList, setAdhkarList] = useState(DEFAULT_ADHKAR);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  
+  // حالة نافذة إضافة ذكر مخصص
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [customDhikrInput, setCustomDhikrInput] = useState('');
+
+  // حالة الإشعارات الصامتة
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [notificationInterval, setNotificationInterval] = useState(15); // بالدقائق: 5, 15, 30, 60
+  const [testingNotification, setTestingNotification] = useState(false);
+
+  // حالة التحديثات الفورية (OTA Updates)
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
+  const [hasUpdateAvailable, setHasUpdateAvailable] = useState(false);
+
+  // حالة بوصلة القبلة
+  const [heading, setHeading] = useState(0);
+  const [qiblaAngle, setQiblaAngle] = useState(136); // زاوية افتراضية (القاهرة)
+  const [cityName, setCityName] = useState('جاري تحديد موقعك...');
+  const [hasMagnetometer, setHasMagnetometer] = useState(true);
+  const [locationLoading, setLocationLoading] = useState(false);
+
+  // أنيميشن زر التسبيح
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  // تهيئة التطبيق عند الفتح لأول مرة
+  useEffect(() => {
+    loadSavedData();
+    setupNotificationSystem();
+    checkForAppUpdates(false);
+  }, []);
+
+  // تشغيل مستشعر البوصلة وتحديد الموقع عند فتح تبويب القبلة
+  useEffect(() => {
+    let subscription = null;
+
+    if (activeTab === 'qibla') {
+      getUserLocationAndCalculateQibla();
+
+      Magnetometer.isAvailableAsync().then((available) => {
+        setHasMagnetometer(available);
+        if (available) {
+          Magnetometer.setUpdateInterval(80);
+          subscription = Magnetometer.addListener((data) => {
+            let { x, y } = data;
+            // حساب الزاوية بالنسبة للشمال المغناطيسي
+            let angle = Math.atan2(x, y) * (180 / Math.PI);
+            if (angle < 0) angle += 360;
+            setHeading(Math.round(angle));
+          });
+        }
+      });
+    }
+
+    return () => {
+      if (subscription) {
+        subscription.remove();
+      }
+    };
+  }, [activeTab]);
+
+  // حفظ البيانات عند تغيرها
+  useEffect(() => {
+    AsyncStorage.setItem(STORAGE_KEYS.CURRENT_COUNT, count.toString());
+  }, [count]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(STORAGE_KEYS.TOTAL_COUNT, totalCount.toString());
+  }, [totalCount]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(STORAGE_KEYS.SELECTED_INDEX, selectedIndex.toString());
+  }, [selectedIndex]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(STORAGE_KEYS.DARK_MODE, JSON.stringify(isDarkMode));
+  }, [isDarkMode]);
+
+  // تحديث جدولة الإشعارات عند تغيير الإعدادات أو قائمة الأذكار
+  useEffect(() => {
+    if (notificationsEnabled) {
+      scheduleRotatingNotifications(notificationInterval, adhkarList);
+    } else {
+      cancelAllNotifications();
+    }
+  }, [notificationsEnabled, notificationInterval, adhkarList]);
+
+  // تحميل البيانات المحفوظة محلياً
+  const loadSavedData = async () => {
+    try {
+      const savedCount = await AsyncStorage.getItem(STORAGE_KEYS.CURRENT_COUNT);
+      if (savedCount !== null) setCount(parseInt(savedCount, 10));
+
+      const savedTotal = await AsyncStorage.getItem(STORAGE_KEYS.TOTAL_COUNT);
+      if (savedTotal !== null) setTotalCount(parseInt(savedTotal, 10));
+
+      const savedIndex = await AsyncStorage.getItem(STORAGE_KEYS.SELECTED_INDEX);
+      if (savedIndex !== null) setSelectedIndex(parseInt(savedIndex, 10));
+
+      const savedDarkMode = await AsyncStorage.getItem(STORAGE_KEYS.DARK_MODE);
+      if (savedDarkMode !== null) setIsDarkMode(JSON.parse(savedDarkMode));
+
+      const savedNotifEnabled = await AsyncStorage.getItem(STORAGE_KEYS.NOTIF_ENABLED);
+      if (savedNotifEnabled !== null) setNotificationsEnabled(JSON.parse(savedNotifEnabled));
+
+      const savedNotifInterval = await AsyncStorage.getItem(STORAGE_KEYS.NOTIF_INTERVAL);
+      if (savedNotifInterval !== null) setNotificationInterval(parseInt(savedNotifInterval, 10));
+
+      const savedCustom = await AsyncStorage.getItem(STORAGE_KEYS.CUSTOM_ADHKAR);
+      if (savedCustom !== null) {
+        const parsedCustom = JSON.parse(savedCustom);
+        setAdhkarList([...DEFAULT_ADHKAR, ...parsedCustom]);
+      }
+    } catch (e) {
+      console.log('Error loading local data', e);
+    }
+  };
+
+  // تهيئة قناة الإشعارات الصامتة وطلب الصلاحيات تلقائياً
+  const setupNotificationSystem = async () => {
+    try {
+      if (Platform.OS === 'android') {
+        await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
+          name: 'الأذكار',
+          description: 'تنبيهات صامتة بالذكر تظهر على الشاشة بهدوء تام دون صوت أو اهتزاز',
+          importance: Notifications.AndroidImportance.LOW,
+          sound: null,
+          enableVibrate: false,
+          vibrationPattern: null,
+          showBadge: false,
+          enableLights: false,
+        });
+      }
+
+      // طلب الصلاحية تلقائياً
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== 'granted') {
+        setNotificationsEnabled(false);
+      }
+    } catch (error) {
+      console.log('Error setting up notification channel', error);
+    }
+  };
+
+  // حساب زاوية القبلة وفق المعادلة الكروية الدقيقة لموقع الكعبة المشرفة
+  const calculateQiblaFromCoords = (userLat, userLng) => {
+    const phi1 = (userLat * Math.PI) / 180;
+    const phi2 = (KAABA_COORDS.latitude * Math.PI) / 180;
+    const deltaLambda = ((KAABA_COORDS.longitude - userLng) * Math.PI) / 180;
+
+    const y = Math.sin(deltaLambda) * Math.cos(phi2);
+    const x =
+      Math.cos(phi1) * Math.sin(phi2) -
+      Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+
+    let qibla = (Math.atan2(y, x) * 180) / Math.PI;
+    return Math.round((qibla + 360) % 360);
+  };
+
+  // طلب إذن الموقع وحساب زاوية القبلة
+  const getUserLocationAndCalculateQibla = async () => {
+    try {
+      setLocationLoading(true);
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setCityName('القاهرة، مصر (افتراضي)');
+        setQiblaAngle(calculateQiblaFromCoords(30.0444, 31.2357));
+        setLocationLoading(false);
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const { latitude, longitude } = location.coords;
+      const angle = calculateQiblaFromCoords(latitude, longitude);
+      setQiblaAngle(angle);
+
+      // محاولة معرفة اسم المدينة
+      try {
+        const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
+        if (geocode && geocode.length > 0) {
+          const place = geocode[0];
+          const name = place.city || place.region || place.country || 'موقعك الحالي';
+          setCityName(name);
+        } else {
+          setCityName('موقعك الجغرافي الحالي');
+        }
+      } catch (err) {
+        setCityName('موقعك الجغرافي الحالي');
+      }
+    } catch (error) {
+      setCityName('القاهرة (افتراضي)');
+      setQiblaAngle(136);
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
+  // اختيار مدينة يدوياً
+  const handleSelectCityPreset = (city) => {
+    setCityName(city.name);
+    setQiblaAngle(calculateQiblaFromCoords(city.lat, city.lng));
+  };
+
+  // فحص وتطبيق التحديثات الهوائية الفورية
+  const checkForAppUpdates = async (showAlertIfNoUpdate = true) => {
+    if (__DEV__) {
+      if (showAlertIfNoUpdate) {
+        Alert.alert(
+          'وضع التطوير',
+          'ميزة التحديثات الفورية التلقائية تعمل داخل ملف الـ APK المثبت على الهاتف وليس داخل بيئة التطوير.'
+        );
+      }
+      return;
+    }
+
+    try {
+      setIsCheckingUpdate(true);
+      const update = await Updates.checkForUpdateAsync();
+
+      if (update.isAvailable) {
+        setHasUpdateAvailable(true);
+        Alert.alert(
+          'تحديث جديد متاح 🚀',
+          'يوجد إصدار جديد للتطبيق يتضمن تحسينات ومزايا جديدة. هل تريد تنزيله وتطبيقه الآن فوراً؟',
+          [
+            { text: 'لاحقاً', style: 'cancel' },
+            {
+              text: 'تحديث الآن',
+              onPress: async () => {
+                await downloadAndApplyUpdate();
+              },
+            },
+          ]
+        );
+      } else {
+        setHasUpdateAvailable(false);
+        if (showAlertIfNoUpdate) {
+          Alert.alert('أحدث إصدار ✅', 'أنت تستخدم أحدث نسخة متوفرة من التطبيق.');
+        }
+      }
+    } catch (error) {
+      if (showAlertIfNoUpdate) {
+        Alert.alert('فحص التحديثات', 'أنت تستخدم أحدث إصدار متوفر حالياً.');
+      }
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  // تنزيل وتثبيت التحديث وإعادة تشغيل التطبيق
+  const downloadAndApplyUpdate = async () => {
+    try {
+      setIsDownloadingUpdate(true);
+      await Updates.fetchUpdateAsync();
+      Alert.alert(
+        'تم تنزيل التحديث بنجاح ✨',
+        'سيتم إعادة تشغيل التطبيق الآن لتطبيق التعديلات الجديدة مباشرة دون الحاجة لإعادة تثبيته.',
+        [
+          {
+            text: 'إعادة التشغيل الآن',
+            onPress: async () => {
+              await Updates.reloadAsync();
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      Alert.alert('خطأ في التحديث', 'تعذر تنزيل التحديث حالياً، يرجى المحاولة لاحقاً.');
+    } finally {
+      setIsDownloadingUpdate(false);
+    }
+  };
+
+  // إلغاء كل الإشعارات
+  const cancelAllNotifications = async () => {
+    try {
+      await Notifications.cancelAllScheduledNotificationsAsync();
+    } catch (e) {
+      console.log('Error canceling notifications', e);
+    }
+  };
+
+  // جدولة إشعارات دورية تظهر نص الذكر فقط دون أي عنوان أو مقدمة
+  const scheduleRotatingNotifications = async (minutes, list) => {
+    try {
+      await Notifications.cancelAllScheduledNotificationsAsync();
+
+      if (!list || list.length === 0) return;
+
+      const intervalSec = Math.max(60, minutes * 60);
+
+      // جدولة مسبقة لـ 20 إشعاراً قادماً لضمان تنوع الذكر في كل مرة
+      for (let i = 1; i <= 20; i++) {
+        const dhikrItem = list[(i - 1) % list.length];
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            body: dhikrItem.text,
+            sound: null,
+            vibrate: [0, 0],
+            channelId: NOTIFICATION_CHANNEL_ID,
+            priority: Notifications.AndroidNotificationPriority.LOW,
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 'timeInterval',
+            seconds: intervalSec * i,
+            repeats: false,
+          },
+        });
+      }
+    } catch (error) {
+      console.log('Error scheduling rotating notifications', error);
+    }
+  };
+
+  // تجربة الإشعار الصامت الآن بنص الذكر فقط
+  const handleTestNotification = async () => {
+    try {
+      setTestingNotification(true);
+      const currentDhikr = adhkarList[selectedIndex] || DEFAULT_ADHKAR[0];
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          body: currentDhikr.text,
+          sound: null,
+          vibrate: [0, 0],
+          channelId: NOTIFICATION_CHANNEL_ID,
+          priority: Notifications.AndroidNotificationPriority.LOW,
+        },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 'timeInterval',
+          seconds: 2,
+          repeats: false,
+        },
+      });
+
+      setTimeout(() => {
+        setTestingNotification(false);
+        Alert.alert(
+          'تم إرسال الإشعار بنجاح',
+          'تفقد شريط الإشعارات بالأعلى؛ سيظهر نص الذكر فقط بهدوء وبصرياً دون أي صوت أو اهتزاز.'
+        );
+      }, 2500);
+    } catch (e) {
+      setTestingNotification(false);
+      Alert.alert('خطأ', 'يرجى التأكد من تفعيل صلاحيات الإشعارات للتطبيق.');
+    }
+  };
+
+  // تفعيل/تعطيل الإشعارات
+  const handleToggleNotifications = async (val) => {
+    if (val) {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'تنبيه الصلاحيات',
+          'يرجى السماح للتطبيق بإرسال الإشعارات حتى يعمل التذكير البصري الصامت.'
+        );
+        setNotificationsEnabled(false);
+        AsyncStorage.setItem(STORAGE_KEYS.NOTIF_ENABLED, JSON.stringify(false));
+        return;
+      }
+    }
+    setNotificationsEnabled(val);
+    AsyncStorage.setItem(STORAGE_KEYS.NOTIF_ENABLED, JSON.stringify(val));
+  };
+
+  // تغيير فترة التكرار
+  const handleSelectInterval = (min) => {
+    setNotificationInterval(min);
+    AsyncStorage.setItem(STORAGE_KEYS.NOTIF_INTERVAL, min.toString());
+  };
+
+  // ضغط زر التسبيح مع أنيميشن نبضي
+  const handlePressTasbeeh = () => {
+    Animated.sequence([
+      Animated.timing(scaleAnim, {
+        toValue: 0.93,
+        duration: 70,
+        useNativeDriver: true,
+      }),
+      Animated.timing(scaleAnim, {
+        toValue: 1,
+        duration: 90,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    setCount((prev) => prev + 1);
+    setTotalCount((prev) => prev + 1);
+  };
+
+  // تصفير العداد الحالي فقط
+  const handleResetCurrent = () => {
+    setCount(0);
+  };
+
+  // تصفير الإجمالي الكلي مع تأكيد
+  const handleResetTotal = () => {
+    Alert.alert(
+      'تصفير الإجمالي الكلي',
+      'هل أنت متأكد من تصفير مجموع كل التسبيحات نهائياً؟',
+      [
+        { text: 'إلغاء', style: 'cancel' },
+        {
+          text: 'تأكيد التصفير',
+          style: 'destructive',
+          onPress: () => {
+            setTotalCount(0);
+            setCount(0);
+          },
+        },
+      ]
+    );
+  };
+
+  // إضافة ذكر مخصص
+  const handleAddCustomDhikr = async () => {
+    const trimmed = customDhikrInput.trim();
+    if (!trimmed) {
+      Alert.alert('تنبيه', 'يرجى كتابة نص الذكر أولاً');
+      return;
+    }
+
+    const newDhikr = {
+      id: Date.now().toString(),
+      text: trimmed,
+      virtue: 'ذكر مخصص أضفته بنفسك',
+      isCustom: true,
+    };
+
+    const updatedList = [...adhkarList, newDhikr];
+    setAdhkarList(updatedList);
+    setSelectedIndex(updatedList.length - 1);
+    setCustomDhikrInput('');
+    setIsModalVisible(false);
+
+    const customOnly = updatedList.filter((item) => item.isCustom);
+    await AsyncStorage.setItem(STORAGE_KEYS.CUSTOM_ADHKAR, JSON.stringify(customOnly));
+  };
+
+  // حذف ذكر مخصص
+  const handleDeleteCustomDhikr = (id) => {
+    Alert.alert('حذف الذكر', 'هل تريد حذف هذا الذكر من قائمتك؟', [
+      { text: 'إلغاء', style: 'cancel' },
+      {
+        text: 'حذف',
+        style: 'destructive',
+        onPress: async () => {
+          const updatedList = adhkarList.filter((item) => item.id !== id);
+          setAdhkarList(updatedList);
+          setSelectedIndex(0);
+
+          const customOnly = updatedList.filter((item) => item.isCustom);
+          await AsyncStorage.setItem(STORAGE_KEYS.CUSTOM_ADHKAR, JSON.stringify(customOnly));
+        },
+      },
+    ]);
+  };
+
+  // سمات الألوان
+  const theme = {
+    bg: isDarkMode ? '#0B1A13' : '#F4F8F5',
+    cardBg: isDarkMode ? '#132B20' : '#FFFFFF',
+    cardBorder: isDarkMode ? '#1F4031' : '#E2EBE5',
+    textPrimary: isDarkMode ? '#EAF7EE' : '#143825',
+    textSecondary: isDarkMode ? '#8EAFA0' : '#4E725F',
+    emeraldMain: isDarkMode ? '#227B52' : '#0F683D',
+    emeraldLight: isDarkMode ? '#173F2D' : '#E3EFE8',
+    goldAccent: '#CBA258',
+    danger: '#D9534F',
+    dangerBg: isDarkMode ? '#381A1A' : '#FDE8E8',
+    white: '#FFFFFF',
+  };
+
+  const selectedDhikr = adhkarList[selectedIndex] || DEFAULT_ADHKAR[0];
+
+  // حساب زاوية مؤشر القبلة النسبي: (زاوية القبلة - اتجاه الهاتف)
+  const relativeQiblaAngle = (qiblaAngle - heading + 360) % 360;
+  // هل الهاتف موجه نحو القبلة مباشرة؟ (مع هامش خطأ ± 4 درجات)
+  const isFacingQibla = relativeQiblaAngle <= 4 || relativeQiblaAngle >= 356;
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
+      <RNStatusBar
+        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
+        backgroundColor={theme.bg}
+      />
+      <StatusBar style={isDarkMode ? 'light' : 'dark'} />
+
+      {/* الشريط العلوي الهيدر */}
+      <View style={[styles.header, { borderBottomColor: theme.cardBorder }]}>
+        <TouchableOpacity
+          style={[styles.headerIconBtn, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}
+          onPress={() => setIsDarkMode(!isDarkMode)}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={isDarkMode ? 'sunny-outline' : 'moon-outline'}
+            size={20}
+            color={theme.goldAccent}
+          />
+        </TouchableOpacity>
+
+        <View style={styles.headerTitleWrap}>
+          <Text style={[styles.headerTitle, { color: theme.emeraldMain }]}>مُذكِّر وتَسبيح</Text>
+          <Text style={[styles.headerSubtitle, { color: theme.textSecondary }]}>
+            أَلَا بِذِكْرِ اللَّهِ تَطْمَئِنُّ الْقُلُوبُ
+          </Text>
+        </View>
+
+        <View style={styles.headerRightBtns}>
+          <TouchableOpacity
+            style={[
+              styles.headerIconBtn,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+            onPress={() => checkForAppUpdates(true)}
+            activeOpacity={0.7}
+            disabled={isCheckingUpdate || isDownloadingUpdate}
+          >
+            {isCheckingUpdate || isDownloadingUpdate ? (
+              <ActivityIndicator size="small" color={theme.emeraldMain} />
+            ) : (
+              <Ionicons
+                name="cloud-download-outline"
+                size={20}
+                color={hasUpdateAvailable ? '#E67E22' : theme.emeraldMain}
+              />
+            )}
+            {hasUpdateAvailable && <View style={styles.updateBadgeDot} />}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.headerIconBtn,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+            onPress={() => setIsModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add" size={24} color={theme.emeraldMain} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* شريط تنبيه إذا كان هناك تحديث جديد متاح */}
+      {hasUpdateAvailable && (
+        <TouchableOpacity
+          style={styles.updateBanner}
+          onPress={() => downloadAndApplyUpdate()}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="sparkles" size={16} color="#FFFFFF" />
+          <Text style={styles.updateBannerText}>
+            تحديث جديد متاح! اضغط هنا للتطبيق الفوري دون حذف التطبيق
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* شريط التنقل بين التبويبات الثلاثة */}
+      <View style={[styles.tabBar, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
+        <TouchableOpacity
+          style={[
+            styles.tabItem,
+            activeTab === 'tasbeeh' && { backgroundColor: theme.emeraldMain },
+          ]}
+          onPress={() => setActiveTab('tasbeeh')}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons
+            name="beads"
+            size={18}
+            color={activeTab === 'tasbeeh' ? theme.white : theme.textSecondary}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              { color: activeTab === 'tasbeeh' ? theme.white : theme.textSecondary },
+            ]}
+          >
+            السبحة
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.tabItem,
+            activeTab === 'qibla' && { backgroundColor: theme.emeraldMain },
+          ]}
+          onPress={() => setActiveTab('qibla')}
+          activeOpacity={0.8}
+        >
+          <FontAwesome5
+            name="compass"
+            size={16}
+            color={activeTab === 'qibla' ? theme.white : theme.textSecondary}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              { color: activeTab === 'qibla' ? theme.white : theme.textSecondary },
+            ]}
+          >
+            القبلة
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.tabItem,
+            activeTab === 'notifications' && { backgroundColor: theme.emeraldMain },
+          ]}
+          onPress={() => setActiveTab('notifications')}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name="notifications-outline"
+            size={16}
+            color={activeTab === 'notifications' ? theme.white : theme.textSecondary}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              { color: activeTab === 'notifications' ? theme.white : theme.textSecondary },
+            ]}
+          >
+            التذكير الصامت
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 1. تبويب السبحة الذكية */}
+      {activeTab === 'tasbeeh' && (
+        <ScrollView
+          style={styles.contentScroll}
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.sectionWrap}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>اختر الذكر:</Text>
+              <TouchableOpacity
+                onPress={() => setIsModalVisible(true)}
+                style={styles.addDhikrLink}
+              >
+                <Text style={[styles.addDhikrLinkText, { color: theme.emeraldMain }]}>
+                  + إضافة ذكر
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.adhkarScrollContent}
+              style={styles.adhkarScroll}
+            >
+              {adhkarList.map((item, index) => {
+                const isSelected = index === selectedIndex;
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    onPress={() => setSelectedIndex(index)}
+                    style={[
+                      styles.dhikrChip,
+                      {
+                        backgroundColor: isSelected ? theme.emeraldMain : theme.cardBg,
+                        borderColor: isSelected ? theme.goldAccent : theme.cardBorder,
+                      },
+                    ]}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.dhikrChipText,
+                        {
+                          color: isSelected ? theme.white : theme.textPrimary,
+                          fontWeight: isSelected ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {item.text}
+                    </Text>
+                    {item.isCustom && (
+                      <TouchableOpacity
+                        onPress={() => handleDeleteCustomDhikr(item.id)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        style={styles.deleteChipIcon}
+                      >
+                        <Ionicons
+                          name="close-circle"
+                          size={16}
+                          color={isSelected ? theme.white : theme.danger}
+                        />
+                      </TouchableOpacity>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          <View
+            style={[
+              styles.currentDhikrCard,
+              {
+                backgroundColor: theme.cardBg,
+                borderColor: theme.cardBorder,
+              },
+            ]}
+          >
+            <View style={styles.dhikrCardBadge}>
+              <Text style={styles.dhikrCardBadgeText}>الذكر الحالي</Text>
+            </View>
+
+            <Text style={[styles.currentDhikrText, { color: theme.textPrimary }]}>
+              {selectedDhikr.text}
+            </Text>
+
+            {selectedDhikr.virtue ? (
+              <View style={[styles.virtueBox, { backgroundColor: theme.emeraldLight }]}>
+                <Ionicons name="sparkles" size={14} color={theme.goldAccent} />
+                <Text style={[styles.virtueText, { color: theme.textSecondary }]}>
+                  {selectedDhikr.virtue}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.counterSection}>
+            <View
+              style={[
+                styles.outerPulseRing,
+                { borderColor: isDarkMode ? '#1B4734' : '#D1E6DC' },
+              ]}
+            >
+              <View
+                style={[
+                  styles.innerPulseRing,
+                  { borderColor: isDarkMode ? '#246146' : '#B8D8CB' },
+                ]}
+              >
+                <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+                  <TouchableOpacity
+                    style={[
+                      styles.tasbeehButton,
+                      {
+                        backgroundColor: theme.emeraldMain,
+                        borderColor: theme.goldAccent,
+                      },
+                    ]}
+                    onPress={handlePressTasbeeh}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.tapInstructionText}>اضغط للتسبيح</Text>
+                    <Text style={styles.counterNumberText}>{count}</Text>
+                    <MaterialCommunityIcons
+                      name="hand-pointing-up"
+                      size={24}
+                      color="rgba(255, 255, 255, 0.7)"
+                    />
+                  </TouchableOpacity>
+                </Animated.View>
+              </View>
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.statsCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+          >
+            <View style={styles.totalStatsRow}>
+              <View style={styles.totalStatsLabelWrap}>
+                <MaterialCommunityIcons
+                  name="counter"
+                  size={22}
+                  color={theme.emeraldMain}
+                />
+                <Text style={[styles.totalStatsLabel, { color: theme.textPrimary }]}>
+                  إجمالي التسبيحات الكلي:
+                </Text>
+              </View>
+              <Text style={[styles.totalStatsValue, { color: theme.emeraldMain }]}>
+                {totalCount.toLocaleString('ar-EG')}
+              </Text>
+            </View>
+
+            <View style={styles.resetButtonsRow}>
+              <TouchableOpacity
+                style={[
+                  styles.resetBtn,
+                  { backgroundColor: theme.emeraldLight, borderColor: theme.cardBorder },
+                ]}
+                onPress={handleResetCurrent}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="refresh" size={16} color={theme.emeraldMain} />
+                <Text style={[styles.resetBtnText, { color: theme.emeraldMain }]}>
+                  تصفير العداد الحالي
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.resetBtn,
+                  { backgroundColor: theme.dangerBg, borderColor: theme.danger },
+                ]}
+                onPress={handleResetTotal}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="trash-outline" size={16} color={theme.danger} />
+                <Text style={[styles.resetBtnText, { color: theme.danger }]}>
+                  تصفير الإجمالي
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+      )}
+
+      {/* 2. تبويب اتجاه القبلة الذكية */}
+      {activeTab === 'qibla' && (
+        <ScrollView
+          style={styles.contentScroll}
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* بطاقة معلومات الموقع الحالي */}
+          <View
+            style={[
+              styles.qiblaLocationCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+          >
+            <View style={styles.qiblaLocationRow}>
+              <View style={styles.qiblaLocationIconWrap}>
+                <Ionicons name="location" size={20} color={theme.emeraldMain} />
+              </View>
+              <View style={styles.qiblaLocationTexts}>
+                <Text style={[styles.qiblaLocationTitle, { color: theme.textPrimary }]}>
+                  {locationLoading ? 'جاري تحديد موقعك...' : cityName}
+                </Text>
+                <Text style={[styles.qiblaLocationSub, { color: theme.textSecondary }]}>
+                  زاوية القبلة: {qiblaAngle}° من الشمال الحقيقي
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={getUserLocationAndCalculateQibla}
+                style={[styles.refreshLocationBtn, { backgroundColor: theme.emeraldLight }]}
+                activeOpacity={0.7}
+              >
+                {locationLoading ? (
+                  <ActivityIndicator size="small" color={theme.emeraldMain} />
+                ) : (
+                  <Ionicons name="locate" size={18} color={theme.emeraldMain} />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* بوصلة القبلة التفاعلية */}
+          <View style={styles.compassContainer}>
+            {/* إشعار محاذاة القبلة */}
+            <View
+              style={[
+                styles.qiblaAlignBadge,
+                {
+                  backgroundColor: isFacingQibla ? '#0F683D' : theme.emeraldLight,
+                  borderColor: isFacingQibla ? theme.goldAccent : 'transparent',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.qiblaAlignBadgeText,
+                  { color: isFacingQibla ? '#FFFFFF' : theme.emeraldMain },
+                ]}
+              >
+                {isFacingQibla
+                  ? '✨ أنت الآن باتجاه القبلة تماماً نحو الكعبة المشرفة 🕋'
+                  : 'أدر هاتفك حتى تتطابق الكعبة مع السهم الذهبي في الأعلى'}
+              </Text>
+            </View>
+
+            {/* قرص البوصلة الكبير */}
+            <View
+              style={[
+                styles.compassDialOuter,
+                {
+                  backgroundColor: theme.cardBg,
+                  borderColor: isFacingQibla ? theme.goldAccent : theme.cardBorder,
+                  shadowColor: isFacingQibla ? theme.goldAccent : '#000',
+                },
+              ]}
+            >
+              {/* الاتجاهات الأربعة */}
+              <Text style={[styles.directionNorth, { color: theme.danger }]}>ش</Text>
+              <Text style={[styles.directionEast, { color: theme.textSecondary }]}>ق</Text>
+              <Text style={[styles.directionSouth, { color: theme.textSecondary }]}>ج</Text>
+              <Text style={[styles.directionWest, { color: theme.textSecondary }]}>غ</Text>
+
+              {/* مؤشر القبلة الدائري يدور باتجاه الكعبة المشرفة */}
+              <View
+                style={[
+                  styles.compassRotatingContainer,
+                  {
+                    transform: [{ rotate: `${relativeQiblaAngle}deg` }],
+                  },
+                ]}
+              >
+                {/* سهم الكعبة المشرفة */}
+                <View style={styles.kaabaPointerWrap}>
+                  <View style={styles.kaabaIconBox}>
+                    <Text style={styles.kaabaEmoji}>🕋</Text>
+                  </View>
+                  <View style={[styles.pointerNeedle, { backgroundColor: theme.goldAccent }]} />
+                </View>
+
+                {/* مركز البوصلة */}
+                <View
+                  style={[
+                    styles.compassCenterPivot,
+                    {
+                      backgroundColor: theme.emeraldMain,
+                      borderColor: theme.goldAccent,
+                    },
+                  ]}
+                >
+                  <Ionicons name="navigate" size={20} color="#FFFFFF" />
+                </View>
+              </View>
+            </View>
+
+            {/* درجة البوصلة الحالية */}
+            <View style={styles.degreeDisplayWrap}>
+              <Text style={[styles.degreeBigText, { color: theme.textPrimary }]}>
+                {heading}°
+              </Text>
+              <Text style={[styles.degreeSmallText, { color: theme.textSecondary }]}>
+                اتجاه الهاتف الحالي
+              </Text>
+            </View>
+
+            {!hasMagnetometer && (
+              <View style={[styles.sensorWarningBox, { backgroundColor: theme.dangerBg }]}>
+                <Ionicons name="warning-outline" size={16} color={theme.danger} />
+                <Text style={[styles.sensorWarningText, { color: theme.danger }]}>
+                  جهازك لا يحتوي على مستشعر بوصلة مغناطيسي. زاوية القبلة الدقيقة لمدينتك هي{' '}
+                  {qiblaAngle}° من الشمال.
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* اختيار سريع لأشهر العواصم والمدن */}
+          <View
+            style={[
+              styles.presetCitiesCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+          >
+            <Text style={[styles.presetCitiesTitle, { color: theme.textPrimary }]}>
+              أو اختر مدينتك مباشرة:
+            </Text>
+            <View style={styles.citiesGrid}>
+              {PRESET_CITIES.map((city) => {
+                const isSelected = cityName.includes(city.name.split('،')[0]);
+                return (
+                  <TouchableOpacity
+                    key={city.name}
+                    style={[
+                      styles.cityChip,
+                      {
+                        backgroundColor: isSelected ? theme.emeraldMain : theme.emeraldLight,
+                        borderColor: isSelected ? theme.goldAccent : theme.cardBorder,
+                      },
+                    ]}
+                    onPress={() => handleSelectCityPreset(city)}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.cityChipText,
+                        {
+                          color: isSelected ? theme.white : theme.textPrimary,
+                          fontWeight: isSelected ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {city.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        </ScrollView>
+      )}
+
+      {/* 3. تبويب التذكير الصامت */}
+      {activeTab === 'notifications' && (
+        <ScrollView
+          style={styles.contentScroll}
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          <View
+            style={[
+              styles.infoCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+          >
+            <View style={styles.infoTitleRow}>
+              <Ionicons name="eye-outline" size={26} color={theme.emeraldMain} />
+              <Text style={[styles.infoTitle, { color: theme.emeraldMain }]}>
+                نظام التذكير الصامت (قراءة نظر فقط)
+              </Text>
+            </View>
+            <Text style={[styles.infoDesc, { color: theme.textPrimary }]}>
+              صُمم هذا النظام ليُظهر لك الأذكار على شاشة هاتفك بهدوء تام دون صوت ودون اهتزاز وبنص الذكر فقط، لتستمر
+              في ذكر الله أثناء عملك أو دراستك أو وجودك في الاجتماعات والمجالس دون أن تُحدث أي إزعاج.
+            </Text>
+
+            <View style={[styles.badgeList, { borderTopColor: theme.cardBorder }]}>
+              <View style={[styles.featurePill, { backgroundColor: theme.emeraldLight }]}>
+                <Ionicons name="volume-mute-outline" size={15} color={theme.emeraldMain} />
+                <Text style={[styles.featurePillText, { color: theme.emeraldMain }]}>
+                  صوت معطّل نهائياً
+                </Text>
+              </View>
+              <View style={[styles.featurePill, { backgroundColor: theme.emeraldLight }]}>
+                <MaterialCommunityIcons name="vibrate-off" size={15} color={theme.emeraldMain} />
+                <Text style={[styles.featurePillText, { color: theme.emeraldMain }]}>
+                  اهتزاز معطّل نهائياً
+                </Text>
+              </View>
+              <View style={[styles.featurePill, { backgroundColor: theme.emeraldLight }]}>
+                <Ionicons name="sync-outline" size={15} color={theme.emeraldMain} />
+                <Text style={[styles.featurePillText, { color: theme.emeraldMain }]}>
+                  تبديل دوري للذكر
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.settingCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+          >
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfoWrap}>
+                <Text style={[styles.settingLabel, { color: theme.textPrimary }]}>
+                  تفعيل الإشعارات الصامتة
+                </Text>
+                <Text style={[styles.settingSubLabel, { color: theme.textSecondary }]}>
+                  {notificationsEnabled
+                    ? 'التذكير قيد العمل بصمت كل ' + notificationInterval + ' دقيقة'
+                    : 'الإشعارات متوقفة حالياً'}
+                </Text>
+              </View>
+              <Switch
+                value={notificationsEnabled}
+                onValueChange={handleToggleNotifications}
+                trackColor={{ false: '#CCCCCC', true: theme.emeraldMain }}
+                thumbColor={notificationsEnabled ? theme.goldAccent : '#FFFFFF'}
+              />
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.settingCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+          >
+            <Text style={[styles.settingLabel, { color: theme.textPrimary, marginBottom: 12 }]}>
+              تكرار التذكير كل:
+            </Text>
+            <View style={styles.intervalOptionsRow}>
+              {[5, 15, 30, 60].map((min) => {
+                const isSelected = notificationInterval === min;
+                return (
+                  <TouchableOpacity
+                    key={min}
+                    style={[
+                      styles.intervalChip,
+                      {
+                        backgroundColor: isSelected ? theme.emeraldMain : theme.emeraldLight,
+                        borderColor: isSelected ? theme.goldAccent : theme.cardBorder,
+                      },
+                    ]}
+                    onPress={() => handleSelectInterval(min)}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.intervalChipText,
+                        {
+                          color: isSelected ? theme.white : theme.textPrimary,
+                          fontWeight: isSelected ? '700' : '500',
+                        },
+                      ]}
+                    >
+                      {min === 60 ? 'ساعة' : `${min} دقائق`}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.settingCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+          >
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfoWrap}>
+                <Text style={[styles.settingLabel, { color: theme.textPrimary }]}>
+                  تحديثات التطبيق الفورية (OTA)
+                </Text>
+                <Text style={[styles.settingSubLabel, { color: theme.textSecondary }]}>
+                  يمكنك فحص وتنزيل أي تحديثات جديدة بضغطة زر دون حذف التطبيق
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.checkUpdateBtn, { backgroundColor: theme.emeraldMain }]}
+                onPress={() => checkForAppUpdates(true)}
+                disabled={isCheckingUpdate || isDownloadingUpdate}
+                activeOpacity={0.8}
+              >
+                {isCheckingUpdate || isDownloadingUpdate ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.checkUpdateBtnText}>فحص التحديثات</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[
+              styles.testNotificationBtn,
+              {
+                backgroundColor: testingNotification ? theme.cardBorder : theme.emeraldMain,
+                borderColor: theme.goldAccent,
+              },
+            ]}
+            onPress={handleTestNotification}
+            disabled={testingNotification}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name={testingNotification ? 'hourglass-outline' : 'paper-plane-outline'}
+              size={20}
+              color={theme.white}
+            />
+            <Text style={styles.testNotificationBtnText}>
+              {testingNotification
+                ? 'جاري إرسال الإشعار بعد ثانيتين...'
+                : 'تجربة الإشعار الصامت الآن'}
+            </Text>
+          </TouchableOpacity>
+
+          <Text style={[styles.testHint, { color: theme.textSecondary }]}>
+            * سيظهر إشعار صامت بنص الذكر فقط بهدوء في شريط الإشعارات بعد ثانيتين للتأكد من خلوه من أي صوت أو اهتزاز.
+          </Text>
+        </ScrollView>
+      )}
+
+      {/* نافذة منبثقة لإضافة ذكر مخصص */}
+      <Modal
+        visible={isModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContent,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: theme.emeraldMain }]}>
+                إضافة ذكر مخصص
+              </Text>
+              <TouchableOpacity
+                onPress={() => setIsModalVisible(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={24} color={theme.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
+              اكتب صيغة الذكر أو الدعاء التي ترغب في تكرارها وإضافتها لقائمتك:
+            </Text>
+
+            <TextInput
+              style={[
+                styles.modalTextInput,
+                {
+                  color: theme.textPrimary,
+                  backgroundColor: isDarkMode ? '#0B1A13' : '#F9FCFA',
+                  borderColor: theme.cardBorder,
+                },
+              ]}
+              placeholder="مثال: رَبِّ اغْفِرْ لِي وَتُبْ عَلَيَّ..."
+              placeholderTextColor={theme.textSecondary}
+              value={customDhikrInput}
+              onChangeText={setCustomDhikrInput}
+              multiline
+              textAlign="right"
+              autoFocus
+            />
+
+            <View style={styles.modalActionsRow}>
+              <TouchableOpacity
+                style={[styles.modalCancelBtn, { borderColor: theme.cardBorder }]}
+                onPress={() => setIsModalVisible(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.modalCancelBtnText, { color: theme.textSecondary }]}>
+                  إلغاء
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalSubmitBtn, { backgroundColor: theme.emeraldMain }]}
+                onPress={handleAddCustomDhikr}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalSubmitBtnText}>إضافة للقائمة</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+  },
+  header: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  headerRightBtns: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerTitleWrap: {
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 21,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  headerSubtitle: {
+    fontSize: 11.5,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  headerIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    position: 'relative',
+  },
+  updateBadgeDot: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E74C3C',
+  },
+  updateBanner: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E67E22',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  updateBannerText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  tabBar: {
+    flexDirection: 'row-reverse',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    borderRadius: 14,
+    padding: 4,
+    borderWidth: 1,
+  },
+  tabItem: {
+    flex: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  tabText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  contentScroll: {
+    flex: 1,
+  },
+  scrollContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: 32,
+  },
+  sectionWrap: {
+    marginTop: 8,
+  },
+  sectionHeader: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  addDhikrLink: {
+    paddingHorizontal: 4,
+  },
+  addDhikrLinkText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  adhkarScroll: {
+    marginHorizontal: -16,
+  },
+  adhkarScrollContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+    flexDirection: 'row-reverse',
+  },
+  dhikrChip: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    maxWidth: 240,
+  },
+  dhikrChipText: {
+    fontSize: 13,
+  },
+  deleteChipIcon: {
+    marginRight: 6,
+  },
+  currentDhikrCard: {
+    marginTop: 14,
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    position: 'relative',
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+  },
+  dhikrCardBadge: {
+    position: 'absolute',
+    top: -10,
+    right: 20,
+    backgroundColor: '#CBA258',
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  dhikrCardBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  currentDhikrText: {
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 32,
+    marginTop: 4,
+  },
+  virtueBox: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginTop: 12,
+    gap: 6,
+    width: '100%',
+  },
+  virtueText: {
+    fontSize: 12,
+    flex: 1,
+    textAlign: 'right',
+    fontWeight: '500',
+    lineHeight: 18,
+  },
+  counterSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 24,
+  },
+  outerPulseRing: {
+    width: width * 0.65,
+    height: width * 0.65,
+    maxWidth: 260,
+    maxHeight: 260,
+    borderRadius: 130,
+    borderWidth: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  innerPulseRing: {
+    width: '90%',
+    height: '90%',
+    borderRadius: 120,
+    borderWidth: 3,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tasbeehButton: {
+    width: width * 0.52,
+    height: width * 0.52,
+    maxWidth: 210,
+    maxHeight: 210,
+    borderRadius: 105,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    elevation: 8,
+    shadowColor: '#0F683D',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+  },
+  tapInstructionText: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  counterNumberText: {
+    color: '#FFFFFF',
+    fontSize: 48,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginVertical: 2,
+  },
+  statsCard: {
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+  },
+  totalStatsRow: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  totalStatsLabelWrap: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 6,
+  },
+  totalStatsLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  totalStatsValue: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  resetButtonsRow: {
+    flexDirection: 'row-reverse',
+    gap: 10,
+  },
+  resetBtn: {
+    flex: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 6,
+  },
+  resetBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  infoCard: {
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    marginTop: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+  },
+  infoTitleRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  infoDesc: {
+    fontSize: 13.5,
+    lineHeight: 22,
+    textAlign: 'right',
+  },
+  badgeList: {
+    flexDirection: 'row-reverse',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  featurePill: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    gap: 4,
+  },
+  featurePillText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  settingCard: {
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    marginTop: 14,
+  },
+  settingRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  settingInfoWrap: {
+    flex: 1,
+    alignItems: 'flex-end',
+    marginLeft: 12,
+  },
+  settingLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  settingSubLabel: {
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: 'right',
+  },
+  checkUpdateBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 100,
+  },
+  checkUpdateBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  intervalOptionsRow: {
+    flexDirection: 'row-reverse',
+    gap: 8,
+  },
+  intervalChip: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  intervalChipText: {
+    fontSize: 13,
+  },
+  testNotificationBtn: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 20,
+    gap: 8,
+    borderWidth: 1.5,
+    elevation: 3,
+  },
+  testNotificationBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  testHint: {
+    fontSize: 11.5,
+    textAlign: 'center',
+    marginTop: 10,
+    lineHeight: 18,
+  },
+  // أنماط بوصلة القبلة
+  qiblaLocationCard: {
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    marginTop: 6,
+  },
+  qiblaLocationRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  qiblaLocationIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15, 104, 61, 0.1)',
+  },
+  qiblaLocationTexts: {
+    flex: 1,
+    alignItems: 'flex-end',
+    marginRight: 10,
+    marginLeft: 10,
+  },
+  qiblaLocationTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  qiblaLocationSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  refreshLocationBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  compassContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 14,
+    marginBottom: 16,
+  },
+  qiblaAlignBadge: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+  },
+  qiblaAlignBadgeText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  compassDialOuter: {
+    width: width * 0.72,
+    height: width * 0.72,
+    maxWidth: 290,
+    maxHeight: 290,
+    borderRadius: 145,
+    borderWidth: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+  },
+  directionNorth: {
+    position: 'absolute',
+    top: 10,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  directionEast: {
+    position: 'absolute',
+    right: 12,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  directionSouth: {
+    position: 'absolute',
+    bottom: 10,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  directionWest: {
+    position: 'absolute',
+    left: 12,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  compassRotatingContainer: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kaabaPointerWrap: {
+    position: 'absolute',
+    top: 18,
+    alignItems: 'center',
+  },
+  kaabaIconBox: {
+    backgroundColor: '#0F683D',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#CBA258',
+    elevation: 4,
+  },
+  kaabaEmoji: {
+    fontSize: 18,
+  },
+  pointerNeedle: {
+    width: 4,
+    height: 60,
+    borderRadius: 2,
+    marginTop: 2,
+  },
+  compassCenterPivot: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+  },
+  degreeDisplayWrap: {
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  degreeBigText: {
+    fontSize: 28,
+    fontWeight: '900',
+  },
+  degreeSmallText: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  sensorWarningBox: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 10,
+    marginTop: 12,
+    gap: 8,
+  },
+  sensorWarningText: {
+    fontSize: 12,
+    flex: 1,
+    textAlign: 'right',
+  },
+  presetCitiesCard: {
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    marginTop: 8,
+  },
+  presetCitiesTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 10,
+    textAlign: 'right',
+  },
+  citiesGrid: {
+    flexDirection: 'row-reverse',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  cityChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  cityChipText: {
+    fontSize: 12,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 18,
+    padding: 20,
+    borderWidth: 1,
+    elevation: 6,
+  },
+  modalHeader: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  modalHint: {
+    fontSize: 13,
+    marginBottom: 12,
+    textAlign: 'right',
+    lineHeight: 20,
+  },
+  modalTextInput: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    fontSize: 14,
+    minHeight: 80,
+    textAlignVertical: 'top',
+    marginBottom: 18,
+  },
+  modalActionsRow: {
+    flexDirection: 'row-reverse',
+    gap: 10,
+  },
+  modalSubmitBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 10,
+  },
+  modalSubmitBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  modalCancelBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  modalCancelBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
