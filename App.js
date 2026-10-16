@@ -151,6 +151,7 @@ export default function App() {
   const [testingNotification, setTestingNotification] = useState(false);
 
   // حالة التحديثات الفورية (OTA Updates)
+  const { isUpdateAvailable: isOtaAvailable, isUpdatePending } = Updates.useUpdates();
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
   const [hasUpdateAvailable, setHasUpdateAvailable] = useState(false);
@@ -273,7 +274,6 @@ export default function App() {
   useEffect(() => {
     loadSavedData();
     setupNotificationSystem();
-    checkForAppUpdates(false);
     detectUserLocation();
 
     // تشغيل أنيميشن النبض الهادئ لشعار الشاشة الترحيبية
@@ -311,6 +311,24 @@ export default function App() {
 
     return () => clearTimeout(splashTimer);
   }, []);
+
+  // فحص وتطبيق التحديثات الهوائية بعد اختفاء شاشة البداية بالكامل (لتجنب تعارض الـ Modals على أندرويد)
+  useEffect(() => {
+    if (!isAppLoading) {
+      if (isUpdatePending) {
+        showRestartPopup();
+      } else {
+        checkForAppUpdates(false);
+      }
+    }
+  }, [isAppLoading]);
+
+  // إظهار نافذة إعادة التشغيل فور اكتمال تنزيل التحديث في الخلفية في أي وقت
+  useEffect(() => {
+    if (!isAppLoading && isUpdatePending) {
+      showRestartPopup();
+    }
+  }, [isAppLoading, isUpdatePending]);
 
   // مؤقت تحديث الساعة والعد التنازلي لمواقيت الصلاة كل ثانية
   useEffect(() => {
@@ -606,6 +624,31 @@ export default function App() {
     return `${pad(h)}:${pad(m)} ${period}`;
   };
 
+  // نافذة منبثقة فاخرة لتأكيد إعادة التشغيل بعد اكتمال التحديث
+  const showRestartPopup = () => {
+    showPopup({
+      type: 'update',
+      icon: 'sparkles-outline',
+      title: 'تم تنزيل التحديث بنجاح ✨',
+      message: 'تم تجهيز الإصدار الجديد بنجاح في الخلفية. أعد تشغيل التطبيق الآن لتطبيق التحسينات فوراً بنقرة واحدة.',
+      buttons: [
+        { text: 'لاحقاً', style: 'cancel', onPress: hidePopup },
+        {
+          text: 'إعادة التشغيل الآن ⚡',
+          style: 'primary',
+          onPress: async () => {
+            hidePopup();
+            try {
+              await Updates.reloadAsync();
+            } catch (e) {
+              console.log('Error reloading update', e);
+            }
+          },
+        },
+      ],
+    });
+  };
+
   // فحص وتطبيق التحديثات الهوائية الفورية
   const checkForAppUpdates = async (showAlertIfNoUpdate = true) => {
     if (__DEV__) {
@@ -620,29 +663,41 @@ export default function App() {
       return;
     }
 
+    // إذا كان التحديث قد تم تنزيله وجاهزاً لإعادة التشغيل
+    if (isUpdatePending) {
+      showRestartPopup();
+      return;
+    }
+
     try {
       setIsCheckingUpdate(true);
       const update = await Updates.checkForUpdateAsync();
 
       if (update.isAvailable) {
         setHasUpdateAvailable(true);
-        showPopup({
-          type: 'update',
-          icon: 'cloud-download-outline',
-          title: 'تحديث جديد متاح 🚀',
-          message: 'يوجد إصدار جديد للتطبيق يتضمن تحسينات ومزايا جديدة. هل تريد تنزيله وتطبيقه الآن فوراً بنقرة واحدة؟',
-          buttons: [
-            { text: 'لاحقاً', style: 'cancel', onPress: hidePopup },
-            {
-              text: 'تحديث وتثبيت الآن ✨',
-              style: 'primary',
-              onPress: async () => {
-                hidePopup();
-                await downloadAndApplyUpdate();
+        if (showAlertIfNoUpdate) {
+          // إذا ضغط المستخدم يدوياً على زر فحص التحديثات
+          showPopup({
+            type: 'update',
+            icon: 'cloud-download-outline',
+            title: 'تحديث جديد متاح 🚀',
+            message: 'يوجد إصدار جديد للتطبيق يتضمن تحسينات ومزايا جديدة. هل تريد تنزيله وتطبيقه الآن فوراً بنقرة واحدة؟',
+            buttons: [
+              { text: 'لاحقاً', style: 'cancel', onPress: hidePopup },
+              {
+                text: 'تحديث وتثبيت الآن ✨',
+                style: 'primary',
+                onPress: async () => {
+                  hidePopup();
+                  await downloadAndApplyUpdate(true);
+                },
               },
-            },
-          ],
-        });
+            ],
+          });
+        } else {
+          // عند الفحص التلقائي بعد فتح التطبيق: نبدأ التنزيل في الخلفية مباشرةً ليظهر له بوب اب إعادة التشغيل فور انتهائه
+          downloadAndApplyUpdate(false);
+        }
       } else {
         setHasUpdateAvailable(false);
         if (showAlertIfNoUpdate) {
@@ -668,34 +723,27 @@ export default function App() {
     }
   };
 
-  // تنزيل وتثبيت التحديث وإعادة تشغيل التطبيق
-  const downloadAndApplyUpdate = async () => {
+  // تنزيل وتثبيت التحديث وإظهار نافذة إعادة التشغيل مباشرة فور اكتماله
+  const downloadAndApplyUpdate = async (showAlertOnError = true) => {
+    if (__DEV__) return;
     try {
       setIsDownloadingUpdate(true);
       await Updates.fetchUpdateAsync();
-      showPopup({
-        type: 'success',
-        icon: 'sparkles-outline',
-        title: 'تم تنزيل التحديث بنجاح ✨',
-        message: 'سيتم إعادة تشغيل التطبيق الآن لتطبيق التعديلات الجديدة مباشرة دون الحاجة لإعادة تثبيته.',
-        buttons: [
-          {
-            text: 'إعادة التشغيل الآن ⚡',
-            style: 'primary',
-            onPress: async () => {
-              hidePopup();
-              await Updates.reloadAsync();
-            },
-          },
-        ],
-      });
+      showRestartPopup();
     } catch (error) {
-      showPopup({
-        type: 'danger',
-        icon: 'alert-circle-outline',
-        title: 'خطأ في التحديث',
-        message: 'تعذر تنزيل التحديث حالياً، يرجى المحاولة لاحقاً.',
-      });
+      console.log('Update fetch error:', error);
+      if (isUpdatePending) {
+        showRestartPopup();
+        return;
+      }
+      if (showAlertOnError) {
+        showPopup({
+          type: 'danger',
+          icon: 'alert-circle-outline',
+          title: 'خطأ في التحديث',
+          message: 'تعذر تنزيل التحديث حالياً، يرجى المحاولة لاحقاً.',
+        });
+      }
     } finally {
       setIsDownloadingUpdate(false);
     }
@@ -995,10 +1043,10 @@ export default function App() {
               <Ionicons
                 name="cloud-download-outline"
                 size={20}
-                color={hasUpdateAvailable ? '#E67E22' : theme.emeraldMain}
+                color={(hasUpdateAvailable || isOtaAvailable || isUpdatePending) ? '#E67E22' : theme.emeraldMain}
               />
             )}
-            {hasUpdateAvailable && <View style={styles.updateBadgeDot} />}
+            {(hasUpdateAvailable || isOtaAvailable || isUpdatePending) && <View style={styles.updateBadgeDot} />}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -1014,16 +1062,37 @@ export default function App() {
         </View>
       </View>
 
-      {/* شريط تنبيه إذا كان هناك تحديث جديد متاح */}
-      {hasUpdateAvailable && (
+      {/* شريط تنبيه إذا كان هناك تحديث جديد متاح أو قيد التنزيل أو جاهز لإعادة التشغيل */}
+      {(hasUpdateAvailable || isOtaAvailable || isUpdatePending) && (
         <TouchableOpacity
-          style={styles.updateBanner}
-          onPress={() => downloadAndApplyUpdate()}
+          style={[
+            styles.updateBanner,
+            isUpdatePending && { backgroundColor: theme.emeraldMain },
+          ]}
+          onPress={() => {
+            if (isUpdatePending) {
+              showRestartPopup();
+            } else {
+              downloadAndApplyUpdate(true);
+            }
+          }}
           activeOpacity={0.85}
         >
-          <Ionicons name="sparkles" size={16} color="#FFFFFF" />
+          {isDownloadingUpdate ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Ionicons
+              name={isUpdatePending ? 'reload-circle-outline' : 'sparkles'}
+              size={18}
+              color="#FFFFFF"
+            />
+          )}
           <Text style={styles.updateBannerText}>
-            تحديث جديد متاح! اضغط هنا للتطبيق الفوري دون حذف التطبيق
+            {isUpdatePending
+              ? 'تم تجهيز التحديث بنجاح! اضغط هنا لإعادة التشغيل الآن ⚡'
+              : isDownloadingUpdate
+              ? 'جاري تنزيل التحديث الجديد في الخلفية... ⏳'
+              : 'تحديث جديد متاح! اضغط هنا للتطبيق الفوري دون حذف التطبيق'}
           </Text>
         </TouchableOpacity>
       )}
