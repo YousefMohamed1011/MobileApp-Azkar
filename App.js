@@ -22,6 +22,7 @@ import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
 import * as Location from 'expo-location';
 import { Magnetometer } from 'expo-sensors';
+import { Coordinates, CalculationMethod, PrayerTimes, SunnahTimes } from 'adhan';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
@@ -45,21 +46,26 @@ const KAABA_COORDS = {
   longitude: 39.826206,
 };
 
-// قائمة مدن افتراضية في حال تعذر الحصول على الـ GPS
+// قائمة مدن افتراضية عالمية
 const PRESET_CITIES = [
-  { name: 'القاهرة، مصر', lat: 30.0444, lng: 31.2357 },
-  { name: 'الرياض، السعودية', lat: 24.7136, lng: 46.6753 },
-  { name: 'مكة المكرمة', lat: 21.3891, lng: 39.8579 },
-  { name: 'المدينة المنورة', lat: 24.5247, lng: 39.5692 },
-  { name: 'دبي، الإمارات', lat: 25.2048, lng: 55.2708 },
-  { name: 'عمان، الأردن', lat: 31.9454, lng: 35.9284 },
-  { name: 'بغداد، العراق', lat: 33.3152, lng: 44.3661 },
-  { name: 'الخرطوم، السودان', lat: 15.5007, lng: 32.5599 },
-  { name: 'طرابلس، ليبيا', lat: 32.8872, lng: 13.1913 },
-  { name: 'تونس، تونس', lat: 36.8065, lng: 10.1815 },
-  { name: 'الجزائر، الجزائر', lat: 36.7538, lng: 3.0588 },
-  { name: 'الرباط، المغرب', lat: 34.0209, lng: -6.8416 },
-  { name: 'إسطنبول، تركيا', lat: 41.0082, lng: 28.9784 },
+  { name: 'القاهرة، مصر', lat: 30.0444, lng: 31.2357, method: 'Egyptian' },
+  { name: 'الرياض، السعودية', lat: 24.7136, lng: 46.6753, method: 'UmmAlQura' },
+  { name: 'مكة المكرمة', lat: 21.3891, lng: 39.8579, method: 'UmmAlQura' },
+  { name: 'المدينة المنورة', lat: 24.5247, lng: 39.5692, method: 'UmmAlQura' },
+  { name: 'دبي، الإمارات', lat: 25.2048, lng: 55.2708, method: 'Dubai' },
+  { name: 'الكويت، الكويت', lat: 29.3759, lng: 47.9774, method: 'Kuwait' },
+  { name: 'الدوحة، قطر', lat: 25.2854, lng: 51.531, method: 'Qatar' },
+  { name: 'عمان، الأردن', lat: 31.9454, lng: 35.9284, method: 'MuslimWorldLeague' },
+  { name: 'بغداد، العراق', lat: 33.3152, lng: 44.3661, method: 'MuslimWorldLeague' },
+  { name: 'القدس، فلسطين', lat: 31.7683, lng: 35.2137, method: 'MuslimWorldLeague' },
+  { name: 'الخرطوم، السودان', lat: 15.5007, lng: 32.5599, method: 'Egyptian' },
+  { name: 'طرابلس، ليبيا', lat: 32.8872, lng: 13.1913, method: 'Egyptian' },
+  { name: 'تونس، تونس', lat: 36.8065, lng: 10.1815, method: 'MuslimWorldLeague' },
+  { name: 'الجزائر، الجزائر', lat: 36.7538, lng: 3.0588, method: 'MuslimWorldLeague' },
+  { name: 'الرباط، المغرب', lat: 34.0209, lng: -6.8416, method: 'MuslimWorldLeague' },
+  { name: 'إسطنبول، تركيا', lat: 41.0082, lng: 28.9784, method: 'Turkey' },
+  { name: 'لندن، بريطانيا', lat: 51.5074, lng: -0.1278, method: 'MuslimWorldLeague' },
+  { name: 'نيويورك، أمريكا', lat: 40.7128, lng: -74.006, method: 'NorthAmerica' },
 ];
 
 // قائمة الأذكار الأساسية الافتراضية
@@ -127,7 +133,7 @@ const STORAGE_KEYS = {
 export default function App() {
   // حالة التطبيق العامة
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [activeTab, setActiveTab] = useState('tasbeeh'); // 'tasbeeh' | 'qibla' | 'notifications'
+  const [activeTab, setActiveTab] = useState('tasbeeh'); // 'tasbeeh' | 'prayers' | 'qibla' | 'notifications'
   
   // حالة السبحة
   const [count, setCount] = useState(0);
@@ -141,7 +147,7 @@ export default function App() {
 
   // حالة الإشعارات الصامتة
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [notificationInterval, setNotificationInterval] = useState(15); // بالدقائق: 5, 15, 30, 60
+  const [notificationInterval, setNotificationInterval] = useState(15);
   const [testingNotification, setTestingNotification] = useState(false);
 
   // حالة التحديثات الفورية (OTA Updates)
@@ -149,12 +155,20 @@ export default function App() {
   const [isDownloadingUpdate, setIsDownloadingUpdate] = useState(false);
   const [hasUpdateAvailable, setHasUpdateAvailable] = useState(false);
 
-  // حالة بوصلة القبلة
-  const [heading, setHeading] = useState(0);
-  const [qiblaAngle, setQiblaAngle] = useState(136); // زاوية افتراضية (القاهرة)
-  const [cityName, setCityName] = useState('جاري تحديد موقعك...');
-  const [hasMagnetometer, setHasMagnetometer] = useState(true);
+  // حالة الموقع والجغرافيا المشتركة (لمواقيت الصلاة والقبلة)
+  const [userCoords, setUserCoords] = useState({ latitude: 30.0444, longitude: 31.2357 }); // القاهرة افتراضياً
+  const [cityName, setCityName] = useState('القاهرة، مصر');
   const [locationLoading, setLocationLoading] = useState(false);
+
+  // حالة البوصلة
+  const [heading, setHeading] = useState(0);
+  const [qiblaAngle, setQiblaAngle] = useState(136);
+  const [hasMagnetometer, setHasMagnetometer] = useState(true);
+
+  // حالة مواقيت الصلاة والعد التنازلي الحي
+  const [prayerTimesData, setPrayerTimesData] = useState(null);
+  const [nextPrayerInfo, setNextPrayerInfo] = useState({ name: '', time: null, remainingText: '' });
+  const [currentTimeText, setCurrentTimeText] = useState('');
 
   // أنيميشن زر التسبيح
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -164,22 +178,33 @@ export default function App() {
     loadSavedData();
     setupNotificationSystem();
     checkForAppUpdates(false);
+    detectUserLocation();
   }, []);
 
-  // تشغيل مستشعر البوصلة وتحديد الموقع عند فتح تبويب القبلة
+  // مؤقت تحديث الساعة والعد التنازلي لمواقيت الصلاة كل ثانية
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      setCurrentTimeText(formatTimeArabic(now));
+      if (prayerTimesData) {
+        updatePrayerCountdown(prayerTimesData);
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [prayerTimesData]);
+
+  // تشغيل مستشعر البوصلة عند فتح تبويب القبلة
   useEffect(() => {
     let subscription = null;
 
     if (activeTab === 'qibla') {
-      getUserLocationAndCalculateQibla();
-
       Magnetometer.isAvailableAsync().then((available) => {
         setHasMagnetometer(available);
         if (available) {
           Magnetometer.setUpdateInterval(80);
           subscription = Magnetometer.addListener((data) => {
             let { x, y } = data;
-            // حساب الزاوية بالنسبة للشمال المغناطيسي
             let angle = Math.atan2(x, y) * (180 / Math.PI);
             if (angle < 0) angle += 360;
             setHeading(Math.round(angle));
@@ -194,6 +219,11 @@ export default function App() {
       }
     };
   }, [activeTab]);
+
+  // إعادة حساب مواقيت الصلاة والقبلة عند تغير الإحداثيات
+  useEffect(() => {
+    calculatePrayersAndQibla(userCoords.latitude, userCoords.longitude);
+  }, [userCoords]);
 
   // حفظ البيانات عند تغيرها
   useEffect(() => {
@@ -212,7 +242,7 @@ export default function App() {
     AsyncStorage.setItem(STORAGE_KEYS.DARK_MODE, JSON.stringify(isDarkMode));
   }, [isDarkMode]);
 
-  // تحديث جدولة الإشعارات عند تغيير الإعدادات أو قائمة الأذكار
+  // تحديث جدولة الإشعارات عند تغيير الإعدادات
   useEffect(() => {
     if (notificationsEnabled) {
       scheduleRotatingNotifications(notificationInterval, adhkarList);
@@ -252,7 +282,7 @@ export default function App() {
     }
   };
 
-  // تهيئة قناة الإشعارات الصامتة وطلب الصلاحيات تلقائياً
+  // تهيئة قناة الإشعارات الصامتة
   const setupNotificationSystem = async () => {
     try {
       if (Platform.OS === 'android') {
@@ -268,7 +298,6 @@ export default function App() {
         });
       }
 
-      // طلب الصلاحية تلقائياً
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
       if (existingStatus !== 'granted') {
@@ -284,57 +313,35 @@ export default function App() {
     }
   };
 
-  // حساب زاوية القبلة وفق المعادلة الكروية الدقيقة لموقع الكعبة المشرفة
-  const calculateQiblaFromCoords = (userLat, userLng) => {
-    const phi1 = (userLat * Math.PI) / 180;
-    const phi2 = (KAABA_COORDS.latitude * Math.PI) / 180;
-    const deltaLambda = ((KAABA_COORDS.longitude - userLng) * Math.PI) / 180;
-
-    const y = Math.sin(deltaLambda) * Math.cos(phi2);
-    const x =
-      Math.cos(phi1) * Math.sin(phi2) -
-      Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
-
-    let qibla = (Math.atan2(y, x) * 180) / Math.PI;
-    return Math.round((qibla + 360) % 360);
-  };
-
-  // طلب إذن الموقع وحساب زاوية القبلة
-  const getUserLocationAndCalculateQibla = async () => {
+  // اكتشاف موقع المستخدم التلقائي عبر GPS
+  const detectUserLocation = async () => {
     try {
       setLocationLoading(true);
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        setCityName('القاهرة، مصر (افتراضي)');
-        setQiblaAngle(calculateQiblaFromCoords(30.0444, 31.2357));
         setLocationLoading(false);
         return;
       }
 
-      const location = await Location.getCurrentPositionAsync({
+      const loc = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
 
-      const { latitude, longitude } = location.coords;
-      const angle = calculateQiblaFromCoords(latitude, longitude);
-      setQiblaAngle(angle);
+      const { latitude, longitude } = loc.coords;
+      setUserCoords({ latitude, longitude });
 
-      // محاولة معرفة اسم المدينة
       try {
-        const geocode = await Location.reverseGeocodeAsync({ latitude, longitude });
-        if (geocode && geocode.length > 0) {
-          const place = geocode[0];
-          const name = place.city || place.region || place.country || 'موقعك الحالي';
+        const geo = await Location.reverseGeocodeAsync({ latitude, longitude });
+        if (geo && geo.length > 0) {
+          const item = geo[0];
+          const name = item.city || item.region || item.country || 'موقعك الحالي';
           setCityName(name);
-        } else {
-          setCityName('موقعك الجغرافي الحالي');
         }
-      } catch (err) {
-        setCityName('موقعك الجغرافي الحالي');
+      } catch (e) {
+        setCityName('موقعك الجغرافي');
       }
-    } catch (error) {
-      setCityName('القاهرة (افتراضي)');
-      setQiblaAngle(136);
+    } catch (err) {
+      console.log('Location detection error', err);
     } finally {
       setLocationLoading(false);
     }
@@ -343,7 +350,105 @@ export default function App() {
   // اختيار مدينة يدوياً
   const handleSelectCityPreset = (city) => {
     setCityName(city.name);
-    setQiblaAngle(calculateQiblaFromCoords(city.lat, city.lng));
+    setUserCoords({ latitude: city.lat, longitude: city.lng });
+  };
+
+  // حساب مواقيت الصلاة وزاوية القبلة وفق أحدث المعادلات الفلكية الدقيقة
+  const calculatePrayersAndQibla = (lat, lng) => {
+    try {
+      const coordinates = new Coordinates(lat, lng);
+      const date = new Date();
+
+      // اختيار المعيار الحسابي الأنسب جغرافياً
+      let params = CalculationMethod.MuslimWorldLeague();
+      if (lat >= 20 && lat <= 32 && lng >= 25 && lng <= 36) {
+        // مصر وشمال إفريقيا
+        params = CalculationMethod.Egyptian();
+      } else if (lat >= 16 && lat <= 32 && lng >= 36 && lng <= 60) {
+        // شبه الجزيرة العربية والخليج
+        params = CalculationMethod.UmmAlQura();
+      }
+
+      const prayerTimes = new PrayerTimes(coordinates, date, params);
+      setPrayerTimesData(prayerTimes);
+      updatePrayerCountdown(prayerTimes);
+
+      // حساب زاوية القبلة
+      const phi1 = (lat * Math.PI) / 180;
+      const phi2 = (KAABA_COORDS.latitude * Math.PI) / 180;
+      const deltaLambda = ((KAABA_COORDS.longitude - lng) * Math.PI) / 180;
+
+      const y = Math.sin(deltaLambda) * Math.cos(phi2);
+      const x =
+        Math.cos(phi1) * Math.sin(phi2) -
+        Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+
+      let qibla = (Math.atan2(y, x) * 180) / Math.PI;
+      setQiblaAngle(Math.round((qibla + 360) % 360));
+    } catch (error) {
+      console.log('Error calculating prayer times', error);
+    }
+  };
+
+  // تحديث العد التنازلي للصلاة القادمة
+  const updatePrayerCountdown = (pTimes) => {
+    if (!pTimes) return;
+    const now = new Date();
+
+    const prayerList = [
+      { key: 'fajr', name: 'الفجر', time: pTimes.fajr },
+      { key: 'sunrise', name: 'الشروق', time: pTimes.sunrise },
+      { key: 'dhuhr', name: 'الظهر', time: pTimes.dhuhr },
+      { key: 'asr', name: 'العصر', time: pTimes.asr },
+      { key: 'maghrib', name: 'المغرب', time: pTimes.maghrib },
+      { key: 'isha', name: 'العشاء', time: pTimes.isha },
+    ];
+
+    let next = null;
+    for (let p of prayerList) {
+      if (p.time > now) {
+        next = p;
+        break;
+      }
+    }
+
+    // إذا انتهت صلوات اليوم، فالصلاة القادمة هي فجر الغد
+    if (!next) {
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowTimes = new PrayerTimes(
+        new Coordinates(userCoords.latitude, userCoords.longitude),
+        tomorrow,
+        CalculationMethod.Egyptian()
+      );
+      next = { key: 'fajr', name: 'الفجر (غداً)', time: tomorrowTimes.fajr };
+    }
+
+    const diffMs = next.time.getTime() - now.getTime();
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const secs = Math.floor((diffMs % (1000 * 60)) / 1000);
+
+    const pad = (n) => (n < 10 ? '0' + n : n);
+    const remaining = `${pad(hours)}:${pad(mins)}:${pad(secs)}`;
+
+    setNextPrayerInfo({
+      name: next.name,
+      time: next.time,
+      remainingText: remaining,
+    });
+  };
+
+  // تنسيق الوقت باللغة العربية (مثال: 04:30 ص)
+  const formatTimeArabic = (date) => {
+    if (!date) return '--:--';
+    let h = date.getHours();
+    const m = date.getMinutes();
+    const period = h >= 12 ? 'م' : 'ص';
+    h = h % 12;
+    h = h ? h : 12;
+    const pad = (n) => (n < 10 ? '0' + n : n);
+    return `${pad(h)}:${pad(m)} ${period}`;
   };
 
   // فحص وتطبيق التحديثات الهوائية الفورية
@@ -618,11 +723,20 @@ export default function App() {
   };
 
   const selectedDhikr = adhkarList[selectedIndex] || DEFAULT_ADHKAR[0];
-
-  // حساب زاوية مؤشر القبلة النسبي: (زاوية القبلة - اتجاه الهاتف)
   const relativeQiblaAngle = (qiblaAngle - heading + 360) % 360;
-  // هل الهاتف موجه نحو القبلة مباشرة؟ (مع هامش خطأ ± 4 درجات)
   const isFacingQibla = relativeQiblaAngle <= 4 || relativeQiblaAngle >= 356;
+
+  // قائمة الصلوات للعرض في بطاقات أنيقة
+  const prayerDisplayList = prayerTimesData
+    ? [
+        { key: 'fajr', name: 'صلاة الفجر', icon: 'weather-sunset-up', time: prayerTimesData.fajr },
+        { key: 'sunrise', name: 'شروق الشمس', icon: 'weather-sunny', time: prayerTimesData.sunrise },
+        { key: 'dhuhr', name: 'صلاة الظهر', icon: 'white-balance-sunny', time: prayerTimesData.dhuhr },
+        { key: 'asr', name: 'صلاة العصر', icon: 'weather-partly-cloudy', time: prayerTimesData.asr },
+        { key: 'maghrib', name: 'صلاة المغرب', icon: 'weather-sunset-down', time: prayerTimesData.maghrib },
+        { key: 'isha', name: 'صلاة العشاء', icon: 'weather-night', time: prayerTimesData.isha },
+      ]
+    : [];
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.bg }]}>
@@ -702,7 +816,7 @@ export default function App() {
         </TouchableOpacity>
       )}
 
-      {/* شريط التنقل بين التبويبات الثلاثة */}
+      {/* شريط التنقل بين التبويبات الأربعة */}
       <View style={[styles.tabBar, { backgroundColor: theme.cardBg, borderColor: theme.cardBorder }]}>
         <TouchableOpacity
           style={[
@@ -714,7 +828,7 @@ export default function App() {
         >
           <MaterialCommunityIcons
             name="beads"
-            size={18}
+            size={16}
             color={activeTab === 'tasbeeh' ? theme.white : theme.textSecondary}
           />
           <Text
@@ -730,6 +844,29 @@ export default function App() {
         <TouchableOpacity
           style={[
             styles.tabItem,
+            activeTab === 'prayers' && { backgroundColor: theme.emeraldMain },
+          ]}
+          onPress={() => setActiveTab('prayers')}
+          activeOpacity={0.8}
+        >
+          <MaterialCommunityIcons
+            name="mosque"
+            size={16}
+            color={activeTab === 'prayers' ? theme.white : theme.textSecondary}
+          />
+          <Text
+            style={[
+              styles.tabText,
+              { color: activeTab === 'prayers' ? theme.white : theme.textSecondary },
+            ]}
+          >
+            الصلوات
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.tabItem,
             activeTab === 'qibla' && { backgroundColor: theme.emeraldMain },
           ]}
           onPress={() => setActiveTab('qibla')}
@@ -737,7 +874,7 @@ export default function App() {
         >
           <FontAwesome5
             name="compass"
-            size={16}
+            size={15}
             color={activeTab === 'qibla' ? theme.white : theme.textSecondary}
           />
           <Text
@@ -760,7 +897,7 @@ export default function App() {
         >
           <Ionicons
             name="notifications-outline"
-            size={16}
+            size={15}
             color={activeTab === 'notifications' ? theme.white : theme.textSecondary}
           />
           <Text
@@ -769,7 +906,7 @@ export default function App() {
               { color: activeTab === 'notifications' ? theme.white : theme.textSecondary },
             ]}
           >
-            التذكير الصامت
+            التذكير
           </Text>
         </TouchableOpacity>
       </View>
@@ -966,14 +1103,14 @@ export default function App() {
         </ScrollView>
       )}
 
-      {/* 2. تبويب اتجاه القبلة الذكية */}
-      {activeTab === 'qibla' && (
+      {/* 2. تبويب مواقيت الصلاة الدقيقة والعد التنازلي الحي */}
+      {activeTab === 'prayers' && (
         <ScrollView
           style={styles.contentScroll}
           contentContainerStyle={styles.scrollContainer}
           showsVerticalScrollIndicator={false}
         >
-          {/* بطاقة معلومات الموقع الحالي */}
+          {/* شريط المدينة والموقع الحالي مع زر التحديث */}
           <View
             style={[
               styles.qiblaLocationCard,
@@ -989,11 +1126,11 @@ export default function App() {
                   {locationLoading ? 'جاري تحديد موقعك...' : cityName}
                 </Text>
                 <Text style={[styles.qiblaLocationSub, { color: theme.textSecondary }]}>
-                  زاوية القبلة: {qiblaAngle}° من الشمال الحقيقي
+                  مواقيت دقيقة فلكياً وفق موقعك الجغرافي
                 </Text>
               </View>
               <TouchableOpacity
-                onPress={getUserLocationAndCalculateQibla}
+                onPress={detectUserLocation}
                 style={[styles.refreshLocationBtn, { backgroundColor: theme.emeraldLight }]}
                 activeOpacity={0.7}
               >
@@ -1006,109 +1143,110 @@ export default function App() {
             </View>
           </View>
 
-          {/* بوصلة القبلة التفاعلية */}
-          <View style={styles.compassContainer}>
-            {/* إشعار محاذاة القبلة */}
-            <View
-              style={[
-                styles.qiblaAlignBadge,
-                {
-                  backgroundColor: isFacingQibla ? '#0F683D' : theme.emeraldLight,
-                  borderColor: isFacingQibla ? theme.goldAccent : 'transparent',
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.qiblaAlignBadgeText,
-                  { color: isFacingQibla ? '#FFFFFF' : theme.emeraldMain },
-                ]}
-              >
-                {isFacingQibla
-                  ? '✨ أنت الآن باتجاه القبلة تماماً نحو الكعبة المشرفة 🕋'
-                  : 'أدر هاتفك حتى تتطابق الكعبة مع السهم الذهبي في الأعلى'}
-              </Text>
-            </View>
-
-            {/* قرص البوصلة الكبير */}
-            <View
-              style={[
-                styles.compassDialOuter,
-                {
-                  backgroundColor: theme.cardBg,
-                  borderColor: isFacingQibla ? theme.goldAccent : theme.cardBorder,
-                  shadowColor: isFacingQibla ? theme.goldAccent : '#000',
-                },
-              ]}
-            >
-              {/* الاتجاهات الأربعة */}
-              <Text style={[styles.directionNorth, { color: theme.danger }]}>ش</Text>
-              <Text style={[styles.directionEast, { color: theme.textSecondary }]}>ق</Text>
-              <Text style={[styles.directionSouth, { color: theme.textSecondary }]}>ج</Text>
-              <Text style={[styles.directionWest, { color: theme.textSecondary }]}>غ</Text>
-
-              {/* مؤشر القبلة الدائري يدور باتجاه الكعبة المشرفة */}
-              <View
-                style={[
-                  styles.compassRotatingContainer,
-                  {
-                    transform: [{ rotate: `${relativeQiblaAngle}deg` }],
-                  },
-                ]}
-              >
-                {/* سهم الكعبة المشرفة */}
-                <View style={styles.kaabaPointerWrap}>
-                  <View style={styles.kaabaIconBox}>
-                    <Text style={styles.kaabaEmoji}>🕋</Text>
-                  </View>
-                  <View style={[styles.pointerNeedle, { backgroundColor: theme.goldAccent }]} />
-                </View>
-
-                {/* مركز البوصلة */}
-                <View
-                  style={[
-                    styles.compassCenterPivot,
-                    {
-                      backgroundColor: theme.emeraldMain,
-                      borderColor: theme.goldAccent,
-                    },
-                  ]}
-                >
-                  <Ionicons name="navigate" size={20} color="#FFFFFF" />
-                </View>
+          {/* بطاقة الصلاة القادمة والعد التنازلي الحي */}
+          <View
+            style={[
+              styles.nextPrayerHeroCard,
+              {
+                backgroundColor: theme.emeraldMain,
+                borderColor: theme.goldAccent,
+              },
+            ]}
+          >
+            <View style={styles.nextPrayerHeaderRow}>
+              <View style={styles.nextPrayerBadge}>
+                <Text style={styles.nextPrayerBadgeText}>الصلاة القادمة</Text>
               </View>
+              <Text style={styles.nextPrayerHeroName}>{nextPrayerInfo.name}</Text>
             </View>
 
-            {/* درجة البوصلة الحالية */}
-            <View style={styles.degreeDisplayWrap}>
-              <Text style={[styles.degreeBigText, { color: theme.textPrimary }]}>
-                {heading}°
-              </Text>
-              <Text style={[styles.degreeSmallText, { color: theme.textSecondary }]}>
-                اتجاه الهاتف الحالي
-              </Text>
+            <View style={styles.countdownBox}>
+              <Text style={styles.countdownLabel}>الوقت المتبقي حتى الأذان:</Text>
+              <Text style={styles.countdownDigits}>{nextPrayerInfo.remainingText || '--:--:--'}</Text>
             </View>
 
-            {!hasMagnetometer && (
-              <View style={[styles.sensorWarningBox, { backgroundColor: theme.dangerBg }]}>
-                <Ionicons name="warning-outline" size={16} color={theme.danger} />
-                <Text style={[styles.sensorWarningText, { color: theme.danger }]}>
-                  جهازك لا يحتوي على مستشعر بوصلة مغناطيسي. زاوية القبلة الدقيقة لمدينتك هي{' '}
-                  {qiblaAngle}° من الشمال.
-                </Text>
-              </View>
-            )}
+            <View style={styles.prayerHeroFooterRow}>
+              <Text style={styles.prayerHeroTime}>
+                موعد الأذان: {formatTimeArabic(nextPrayerInfo.time)}
+              </Text>
+              <MaterialCommunityIcons name="clock-outline" size={18} color="rgba(255,255,255,0.8)" />
+            </View>
           </View>
 
-          {/* اختيار سريع لأشهر العواصم والمدن */}
+          {/* قائمة مواقيت الصلوات الخمس مع الشروق */}
+          <View style={styles.sectionWrap}>
+            <Text style={[styles.sectionTitle, { color: theme.textPrimary, marginBottom: 10 }]}>
+              مواقيت اليوم:
+            </Text>
+
+            <View style={styles.prayersListWrap}>
+              {prayerDisplayList.map((prayer) => {
+                const isNext = nextPrayerInfo.name.includes(prayer.name.replace('صلاة ', ''));
+                return (
+                  <View
+                    key={prayer.key}
+                    style={[
+                      styles.prayerItemCard,
+                      {
+                        backgroundColor: isNext ? theme.emeraldLight : theme.cardBg,
+                        borderColor: isNext ? theme.goldAccent : theme.cardBorder,
+                      },
+                    ]}
+                  >
+                    <View style={styles.prayerItemRight}>
+                      <View
+                        style={[
+                          styles.prayerIconCircle,
+                          {
+                            backgroundColor: isNext ? theme.emeraldMain : 'rgba(15, 104, 61, 0.1)',
+                          },
+                        ]}
+                      >
+                        <MaterialCommunityIcons
+                          name={prayer.icon}
+                          size={20}
+                          color={isNext ? theme.white : theme.emeraldMain}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.prayerItemName,
+                          {
+                            color: isNext ? theme.emeraldMain : theme.textPrimary,
+                            fontWeight: isNext ? '800' : '600',
+                          },
+                        ]}
+                      >
+                        {prayer.name}
+                      </Text>
+                    </View>
+
+                    <Text
+                      style={[
+                        styles.prayerItemTime,
+                        {
+                          color: isNext ? theme.emeraldMain : theme.textPrimary,
+                          fontWeight: isNext ? '800' : '700',
+                        },
+                      ]}
+                    >
+                      {formatTimeArabic(prayer.time)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* اختيار سريع للمدينة */}
           <View
             style={[
               styles.presetCitiesCard,
-              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder, marginTop: 14 },
             ]}
           >
             <Text style={[styles.presetCitiesTitle, { color: theme.textPrimary }]}>
-              أو اختر مدينتك مباشرة:
+              تغيير المدينة يدوياً:
             </Text>
             <View style={styles.citiesGrid}>
               {PRESET_CITIES.map((city) => {
@@ -1145,7 +1283,134 @@ export default function App() {
         </ScrollView>
       )}
 
-      {/* 3. تبويب التذكير الصامت */}
+      {/* 3. تبويب اتجاه القبلة الذكية */}
+      {activeTab === 'qibla' && (
+        <ScrollView
+          style={styles.contentScroll}
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          <View
+            style={[
+              styles.qiblaLocationCard,
+              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+            ]}
+          >
+            <View style={styles.qiblaLocationRow}>
+              <View style={styles.qiblaLocationIconWrap}>
+                <Ionicons name="location" size={20} color={theme.emeraldMain} />
+              </View>
+              <View style={styles.qiblaLocationTexts}>
+                <Text style={[styles.qiblaLocationTitle, { color: theme.textPrimary }]}>
+                  {locationLoading ? 'جاري تحديد موقعك...' : cityName}
+                </Text>
+                <Text style={[styles.qiblaLocationSub, { color: theme.textSecondary }]}>
+                  زاوية القبلة: {qiblaAngle}° من الشمال الحقيقي
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={detectUserLocation}
+                style={[styles.refreshLocationBtn, { backgroundColor: theme.emeraldLight }]}
+                activeOpacity={0.7}
+              >
+                {locationLoading ? (
+                  <ActivityIndicator size="small" color={theme.emeraldMain} />
+                ) : (
+                  <Ionicons name="locate" size={18} color={theme.emeraldMain} />
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.compassContainer}>
+            <View
+              style={[
+                styles.qiblaAlignBadge,
+                {
+                  backgroundColor: isFacingQibla ? '#0F683D' : theme.emeraldLight,
+                  borderColor: isFacingQibla ? theme.goldAccent : 'transparent',
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.qiblaAlignBadgeText,
+                  { color: isFacingQibla ? '#FFFFFF' : theme.emeraldMain },
+                ]}
+              >
+                {isFacingQibla
+                  ? '✨ أنت الآن باتجاه القبلة تماماً نحو الكعبة المشرفة 🕋'
+                  : 'أدر هاتفك حتى تتطابق الكعبة مع السهم الذهبي في الأعلى'}
+              </Text>
+            </View>
+
+            <View
+              style={[
+                styles.compassDialOuter,
+                {
+                  backgroundColor: theme.cardBg,
+                  borderColor: isFacingQibla ? theme.goldAccent : theme.cardBorder,
+                  shadowColor: isFacingQibla ? theme.goldAccent : '#000',
+                },
+              ]}
+            >
+              <Text style={[styles.directionNorth, { color: theme.danger }]}>ش</Text>
+              <Text style={[styles.directionEast, { color: theme.textSecondary }]}>ق</Text>
+              <Text style={[styles.directionSouth, { color: theme.textSecondary }]}>ج</Text>
+              <Text style={[styles.directionWest, { color: theme.textSecondary }]}>غ</Text>
+
+              <View
+                style={[
+                  styles.compassRotatingContainer,
+                  {
+                    transform: [{ rotate: `${relativeQiblaAngle}deg` }],
+                  },
+                ]}
+              >
+                <View style={styles.kaabaPointerWrap}>
+                  <View style={styles.kaabaIconBox}>
+                    <Text style={styles.kaabaEmoji}>🕋</Text>
+                  </View>
+                  <View style={[styles.pointerNeedle, { backgroundColor: theme.goldAccent }]} />
+                </View>
+
+                <View
+                  style={[
+                    styles.compassCenterPivot,
+                    {
+                      backgroundColor: theme.emeraldMain,
+                      borderColor: theme.goldAccent,
+                    },
+                  ]}
+                >
+                  <Ionicons name="navigate" size={20} color="#FFFFFF" />
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.degreeDisplayWrap}>
+              <Text style={[styles.degreeBigText, { color: theme.textPrimary }]}>
+                {heading}°
+              </Text>
+              <Text style={[styles.degreeSmallText, { color: theme.textSecondary }]}>
+                اتجاه الهاتف الحالي
+              </Text>
+            </View>
+
+            {!hasMagnetometer && (
+              <View style={[styles.sensorWarningBox, { backgroundColor: theme.dangerBg }]}>
+                <Ionicons name="warning-outline" size={16} color={theme.danger} />
+                <Text style={[styles.sensorWarningText, { color: theme.danger }]}>
+                  جهازك لا يحتوي على مستشعر بوصلة مغناطيسي. زاوية القبلة الدقيقة لمدينتك هي{' '}
+                  {qiblaAngle}° من الشمال.
+                </Text>
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      )}
+
+      {/* 4. تبويب التذكير الصامت */}
       {activeTab === 'notifications' && (
         <ScrollView
           style={styles.contentScroll}
@@ -1424,9 +1689,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   headerIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -1434,8 +1699,8 @@ const styles = StyleSheet.create({
   },
   updateBadgeDot: {
     position: 'absolute',
-    top: 6,
-    right: 6,
+    top: 5,
+    right: 5,
     width: 8,
     height: 8,
     borderRadius: 4,
@@ -1457,11 +1722,11 @@ const styles = StyleSheet.create({
   },
   tabBar: {
     flexDirection: 'row-reverse',
-    marginHorizontal: 16,
-    marginTop: 12,
+    marginHorizontal: 12,
+    marginTop: 10,
     marginBottom: 8,
     borderRadius: 14,
-    padding: 4,
+    padding: 3,
     borderWidth: 1,
   },
   tabItem: {
@@ -1469,12 +1734,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row-reverse',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
+    paddingVertical: 9,
     borderRadius: 10,
-    gap: 6,
+    gap: 4,
   },
   tabText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
   },
   contentScroll: {
@@ -1677,129 +1942,104 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  infoCard: {
-    borderRadius: 16,
+  // أنماط بطاقة الصلاة القادمة
+  nextPrayerHeroCard: {
+    borderRadius: 18,
     padding: 18,
-    borderWidth: 1,
-    marginTop: 8,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-  },
-  infoTitleRow: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
-  },
-  infoTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  infoDesc: {
-    fontSize: 13.5,
-    lineHeight: 22,
-    textAlign: 'right',
-  },
-  badgeList: {
-    flexDirection: 'row-reverse',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-  },
-  featurePill: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    gap: 4,
-  },
-  featurePillText: {
-    fontSize: 11.5,
-    fontWeight: '600',
-  },
-  settingCard: {
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    marginTop: 14,
-  },
-  settingRow: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  settingInfoWrap: {
-    flex: 1,
-    alignItems: 'flex-end',
-    marginLeft: 12,
-  },
-  settingLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    textAlign: 'right',
-  },
-  settingSubLabel: {
-    fontSize: 12,
-    marginTop: 4,
-    textAlign: 'right',
-  },
-  checkUpdateBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 100,
-  },
-  checkUpdateBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12.5,
-    fontWeight: '700',
-  },
-  intervalOptionsRow: {
-    flexDirection: 'row-reverse',
-    gap: 8,
-  },
-  intervalChip: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  intervalChipText: {
-    fontSize: 13,
-  },
-  testNotificationBtn: {
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 14,
-    marginTop: 20,
-    gap: 8,
+    marginVertical: 12,
     borderWidth: 1.5,
-    elevation: 3,
+    elevation: 5,
+    shadowColor: '#0F683D',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  testNotificationBtnText: {
+  nextPrayerHeaderRow: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  nextPrayerBadge: {
+    backgroundColor: '#CBA258',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  nextPrayerBadgeText: {
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 12,
     fontWeight: '700',
   },
-  testHint: {
-    fontSize: 11.5,
-    textAlign: 'center',
-    marginTop: 10,
-    lineHeight: 18,
+  nextPrayerHeroName: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
   },
-  // أنماط بوصلة القبلة
+  countdownBox: {
+    alignItems: 'center',
+    marginVertical: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  countdownLabel: {
+    color: 'rgba(255, 255, 255, 0.85)',
+    fontSize: 12.5,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  countdownDigits: {
+    color: '#FFFFFF',
+    fontSize: 34,
+    fontWeight: '900',
+    letterSpacing: 2,
+    fontVariant: ['tabular-nums'],
+  },
+  prayerHeroFooterRow: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.2)',
+    paddingTop: 10,
+  },
+  prayerHeroTime: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  // قائمة الصلوات
+  prayersListWrap: {
+    gap: 8,
+  },
+  prayerItemCard: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  prayerItemRight: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 12,
+  },
+  prayerIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  prayerItemName: {
+    fontSize: 15,
+  },
+  prayerItemTime: {
+    fontSize: 16,
+  },
+  // أنماط القبلة
   qiblaLocationCard: {
     borderRadius: 16,
     padding: 14,
@@ -1987,6 +2227,129 @@ const styles = StyleSheet.create({
   },
   cityChipText: {
     fontSize: 12,
+  },
+  // أنماط التذكير الصامت
+  infoCard: {
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    marginTop: 8,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+  },
+  infoTitleRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  infoTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  infoDesc: {
+    fontSize: 13.5,
+    lineHeight: 22,
+    textAlign: 'right',
+  },
+  badgeList: {
+    flexDirection: 'row-reverse',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  featurePill: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    gap: 4,
+  },
+  featurePillText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  settingCard: {
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    marginTop: 14,
+  },
+  settingRow: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  settingInfoWrap: {
+    flex: 1,
+    alignItems: 'flex-end',
+    marginLeft: 12,
+  },
+  settingLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  settingSubLabel: {
+    fontSize: 12,
+    marginTop: 4,
+    textAlign: 'right',
+  },
+  checkUpdateBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 100,
+  },
+  checkUpdateBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  intervalOptionsRow: {
+    flexDirection: 'row-reverse',
+    gap: 8,
+  },
+  intervalChip: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  intervalChipText: {
+    fontSize: 13,
+  },
+  testNotificationBtn: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 20,
+    gap: 8,
+    borderWidth: 1.5,
+    elevation: 3,
+  },
+  testNotificationBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  testHint: {
+    fontSize: 11.5,
+    textAlign: 'center',
+    marginTop: 10,
+    lineHeight: 18,
   },
   modalOverlay: {
     flex: 1,
