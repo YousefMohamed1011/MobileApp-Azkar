@@ -232,6 +232,43 @@ export default function App() {
     });
   };
 
+  const modalScaleAnim = useRef(new Animated.Value(0.85)).current;
+  const modalFadeAnim = useRef(new Animated.Value(0)).current;
+
+  const openAddDhikrModal = () => {
+    setIsModalVisible(true);
+    Animated.parallel([
+      Animated.spring(modalScaleAnim, {
+        toValue: 1,
+        friction: 7,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(modalFadeAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const closeAddDhikrModal = () => {
+    Animated.parallel([
+      Animated.timing(modalScaleAnim, {
+        toValue: 0.88,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(modalFadeAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setIsModalVisible(false);
+    });
+  };
+
   // تهيئة التطبيق عند الفتح لأول مرة
   useEffect(() => {
     loadSavedData();
@@ -819,7 +856,7 @@ export default function App() {
     setAdhkarList(updatedList);
     setSelectedIndex(updatedList.length - 1);
     setCustomDhikrInput('');
-    setIsModalVisible(false);
+    closeAddDhikrModal();
 
     const customOnly = updatedList.filter((item) => item.isCustom);
     await AsyncStorage.setItem(STORAGE_KEYS.CUSTOM_ADHKAR, JSON.stringify(customOnly));
@@ -938,7 +975,7 @@ export default function App() {
               styles.headerIconBtn,
               { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
             ]}
-            onPress={() => setIsModalVisible(true)}
+            onPress={openAddDhikrModal}
             activeOpacity={0.7}
           >
             <Ionicons name="add" size={24} color={theme.emeraldMain} />
@@ -1066,7 +1103,7 @@ export default function App() {
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>اختر الذكر:</Text>
               <TouchableOpacity
-                onPress={() => setIsModalVisible(true)}
+                onPress={openAddDhikrModal}
                 style={styles.addDhikrLink}
               >
                 <Text style={[styles.addDhikrLinkText, { color: theme.emeraldMain }]}>
@@ -1728,39 +1765,79 @@ export default function App() {
         </ScrollView>
       )}
 
-      {/* نافذة منبثقة لإضافة ذكر مخصص */}
+      {/* نافذة منبثقة لإضافة ذكر مخصص بتصميم إسلامي فاخر مطابق للتحديثات */}
       <Modal
         visible={isModalVisible}
         transparent
-        animationType="fade"
-        onRequestClose={() => setIsModalVisible(false)}
+        statusBarTranslucent
+        animationType="none"
+        onRequestClose={closeAddDhikrModal}
       >
-        <View style={styles.modalOverlay}>
-          <View
+        <View style={styles.popupOverlay}>
+          <Animated.View
             style={[
-              styles.modalContent,
-              { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+              styles.popupCard,
+              {
+                backgroundColor: theme.cardBg,
+                borderColor: theme.goldAccent,
+                opacity: modalFadeAnim,
+                transform: [{ scale: modalScaleAnim }],
+              },
             ]}
           >
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: theme.emeraldMain }]}>
-                إضافة ذكر مخصص
-              </Text>
-              <TouchableOpacity
-                onPress={() => setIsModalVisible(false)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="close" size={24} color={theme.textSecondary} />
-              </TouchableOpacity>
+            {/* هالة التوهج الخارجية للأيقونة */}
+            <View
+              style={[
+                styles.popupFloatingBadgeHalo,
+                { backgroundColor: 'rgba(203, 162, 88, 0.18)' },
+              ]}
+            />
+
+            {/* الأيقونة العلوية الطافية */}
+            <View
+              style={[
+                styles.popupFloatingBadge,
+                {
+                  backgroundColor: theme.emeraldMain,
+                  borderColor: isDarkMode ? '#132B20' : '#FFFFFF',
+                },
+              ]}
+            >
+              <MaterialCommunityIcons name="book-open-page-variant" size={28} color="#CBA258" />
             </View>
 
-            <Text style={[styles.modalHint, { color: theme.textSecondary }]}>
-              اكتب صيغة الذكر أو الدعاء التي ترغب في تكرارها وإضافتها لقائمتك:
+            {/* وسام الفئة */}
+            <View
+              style={[
+                styles.popupCategoryPill,
+                {
+                  backgroundColor: 'rgba(203, 162, 88, 0.15)',
+                  borderColor: theme.goldAccent,
+                },
+              ]}
+            >
+              <Text style={[styles.popupCategoryPillText, { color: theme.goldAccent }]}>
+                ✨ إضافة ذكر مخصص ✨
+              </Text>
+            </View>
+
+            {/* عنوان النافذة */}
+            <Text style={[styles.popupTitle, { color: theme.textPrimary }]}>
+              أضف ذكراً أو دعاءً خاصاً
+            </Text>
+
+            {/* الزخرفة الهندسية الفاصلة */}
+            <Text style={[styles.popupMotifDivider, { color: theme.goldAccent }]}>
+              ◈  ◆  ◈
+            </Text>
+
+            <Text style={[styles.popupMessage, { color: theme.textSecondary, marginBottom: 14 }]}>
+              اكتب صيغة الذكر أو الدعاء التي ترغب في ترديدها وإضافتها لقائمتك:
             </Text>
 
             <TextInput
               style={[
-                styles.modalTextInput,
+                styles.customDhikrInputBox,
                 {
                   color: theme.textPrimary,
                   backgroundColor: isDarkMode ? '#0B1A13' : '#F9FCFA',
@@ -1776,31 +1853,50 @@ export default function App() {
               autoFocus
             />
 
-            <View style={styles.modalActionsRow}>
+            <View style={styles.popupActionsRow}>
               <TouchableOpacity
-                style={[styles.modalCancelBtn, { borderColor: theme.cardBorder }]}
-                onPress={() => setIsModalVisible(false)}
+                style={[
+                  styles.popupActionBtn,
+                  { backgroundColor: theme.emeraldLight, borderColor: theme.cardBorder },
+                ]}
+                onPress={closeAddDhikrModal}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.modalCancelBtnText, { color: theme.textSecondary }]}>
+                <Text style={[styles.popupActionBtnText, { color: theme.textSecondary, fontWeight: '600' }]}>
                   إلغاء
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalSubmitBtn, { backgroundColor: theme.emeraldMain }]}
+                style={[
+                  styles.popupActionBtn,
+                  {
+                    backgroundColor: theme.emeraldMain,
+                    borderColor: theme.goldAccent,
+                    elevation: 4,
+                  },
+                ]}
                 onPress={handleAddCustomDhikr}
                 activeOpacity={0.8}
               >
-                <Text style={styles.modalSubmitBtnText}>إضافة للقائمة</Text>
+                <Text style={[styles.popupActionBtnText, { color: '#FFFFFF', fontWeight: '800' }]}>
+                  حفظ الذكر 🌿
+                </Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </Animated.View>
         </View>
       </Modal>
 
-      {/* شاشة التحميل الإسلامية الأنيقة (Welcome Animated Splash Loader) */}
-      {isAppLoading && (
+      {/* شاشة التحميل الإسلامية بكامل مساحة الشاشة (Full-Screen Animated Splash Loader) */}
+      <Modal
+        visible={isAppLoading}
+        transparent
+        statusBarTranslucent
+        animationType="none"
+        onRequestClose={() => {}}
+      >
+        <RNStatusBar translucent backgroundColor="transparent" barStyle="light-content" />
         <Animated.View
           style={[
             styles.splashOverlay,
@@ -1809,7 +1905,6 @@ export default function App() {
               opacity: splashFadeAnim,
             },
           ]}
-          pointerEvents={isAppLoading ? 'auto' : 'none'}
         >
           <Animated.View
             style={[
@@ -1829,7 +1924,7 @@ export default function App() {
               ]}
             >
               <View style={styles.splashRingInner}>
-                <MaterialCommunityIcons name="beads" size={52} color="#CBA258" />
+                <MaterialCommunityIcons name="beads" size={54} color="#CBA258" />
               </View>
             </Animated.View>
 
@@ -1849,12 +1944,13 @@ export default function App() {
             <Text style={styles.splashBismillah}>بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</Text>
           </View>
         </Animated.View>
-      )}
+      </Modal>
 
       {/* نافذة منبثقة إسلامية مخصصة وفخمة جداً (Custom Islamic Alert / Popup Modal) */}
       <Modal
         visible={customPopup.visible}
         transparent
+        statusBarTranslucent
         animationType="none"
         onRequestClose={hidePopup}
       >
@@ -1875,6 +1971,21 @@ export default function App() {
               },
             ]}
           >
+            {/* هالة التوهج الخارجية للأيقونة */}
+            <View
+              style={[
+                styles.popupFloatingBadgeHalo,
+                {
+                  backgroundColor:
+                    customPopup.type === 'update'
+                      ? 'rgba(203, 162, 88, 0.18)'
+                      : customPopup.type === 'danger'
+                      ? 'rgba(217, 83, 79, 0.18)'
+                      : 'rgba(15, 104, 61, 0.18)',
+                },
+              ]}
+            />
+
             {/* الأيقونة العلوية الطافية */}
             <View
               style={[
@@ -1888,6 +1999,7 @@ export default function App() {
                       : customPopup.type === 'success'
                       ? theme.emeraldMain
                       : theme.emeraldMain,
+                  borderColor: isDarkMode ? '#132B20' : '#FFFFFF',
                 },
               ]}
             >
@@ -1908,9 +2020,57 @@ export default function App() {
               />
             </View>
 
+            {/* وسام / شارة فئة التنبيه */}
+            <View
+              style={[
+                styles.popupCategoryPill,
+                {
+                  backgroundColor:
+                    customPopup.type === 'update'
+                      ? 'rgba(203, 162, 88, 0.15)'
+                      : customPopup.type === 'danger'
+                      ? 'rgba(217, 83, 79, 0.12)'
+                      : 'rgba(15, 104, 61, 0.12)',
+                  borderColor:
+                    customPopup.type === 'update'
+                      ? theme.goldAccent
+                      : customPopup.type === 'danger'
+                      ? theme.danger
+                      : theme.emeraldMain,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.popupCategoryPillText,
+                  {
+                    color:
+                      customPopup.type === 'update'
+                        ? theme.goldAccent
+                        : customPopup.type === 'danger'
+                        ? theme.danger
+                        : theme.emeraldMain,
+                  },
+                ]}
+              >
+                {customPopup.type === 'update'
+                  ? '✨ تحديث فوري متاح ✨'
+                  : customPopup.type === 'danger'
+                  ? '⚠️ تأكيد الإجراء ⚠️'
+                  : customPopup.type === 'success'
+                  ? '🌿 اكتمل بنجاح 🌿'
+                  : '✦ تنبيه مُذكِّر ✦'}
+              </Text>
+            </View>
+
             {/* عنوان التنبيه */}
             <Text style={[styles.popupTitle, { color: theme.textPrimary }]}>
               {customPopup.title}
+            </Text>
+
+            {/* الزخرفة الهندسية الفاصلة */}
+            <Text style={[styles.popupMotifDivider, { color: theme.goldAccent }]}>
+              ◈  ◆  ◈
             </Text>
 
             {/* نص التنبيه */}
@@ -1931,10 +2091,12 @@ export default function App() {
                       isPrimary && {
                         backgroundColor: theme.emeraldMain,
                         borderColor: theme.goldAccent,
+                        elevation: 4,
                       },
                       isDestructive && {
                         backgroundColor: theme.danger,
                         borderColor: theme.danger,
+                        elevation: 4,
                       },
                       !isPrimary &&
                         !isDestructive && {
@@ -2661,78 +2823,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
     lineHeight: 18,
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    width: '100%',
-    maxWidth: 360,
-    borderRadius: 18,
-    padding: 20,
-    borderWidth: 1,
-    elevation: 6,
-  },
-  modalHeader: {
-    flexDirection: 'row-reverse',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  modalHint: {
-    fontSize: 13,
-    marginBottom: 12,
-    textAlign: 'right',
-    lineHeight: 20,
-  },
-  modalTextInput: {
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 12,
-    fontSize: 14,
-    minHeight: 80,
-    textAlignVertical: 'top',
-    marginBottom: 18,
-  },
-  modalActionsRow: {
-    flexDirection: 'row-reverse',
-    gap: 10,
-  },
-  modalSubmitBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  modalSubmitBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  modalCancelBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  modalCancelBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  // أنماط شاشة البداية الإسلامية (Splash Loader)
+  // أنماط شاشة البداية الإسلامية كاملة الشاشة (Splash Loader)
   splashOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 99999,
+    flex: 1,
+    width: '100%',
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2805,58 +2900,82 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.5,
   },
-  // أنماط النوافذ المنبثقة الإسلامية المخصصة (Custom Popups)
+  // أنماط النوافذ المنبثقة الإسلامية الفاخرة (Custom Islamic Popups)
   popupOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: 22,
   },
   popupCard: {
     width: '100%',
     maxWidth: 360,
-    borderRadius: 24,
+    borderRadius: 26,
     paddingHorizontal: 22,
-    paddingTop: 42,
+    paddingTop: 46,
     paddingBottom: 22,
-    borderWidth: 1.5,
+    borderWidth: 1.8,
     alignItems: 'center',
     position: 'relative',
-    elevation: 12,
+    elevation: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+  },
+  popupFloatingBadgeHalo: {
+    position: 'absolute',
+    top: -42,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
   },
   popupFloatingBadge: {
     position: 'absolute',
-    top: -30,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    top: -33,
+    width: 66,
+    height: 66,
+    borderRadius: 33,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    elevation: 8,
+    borderWidth: 3.5,
+    elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  popupCategoryPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  popupCategoryPillText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  popupMotifDivider: {
+    fontSize: 11,
+    letterSpacing: 3,
+    marginBottom: 10,
+    opacity: 0.85,
   },
   popupTitle: {
     fontSize: 19,
     fontWeight: '800',
     textAlign: 'center',
-    marginBottom: 10,
+    marginBottom: 4,
     letterSpacing: 0.3,
   },
   popupMessage: {
     fontSize: 13.5,
     lineHeight: 23,
     textAlign: 'center',
-    marginBottom: 22,
+    marginBottom: 20,
     paddingHorizontal: 6,
   },
   popupActionsRow: {
@@ -2868,11 +2987,22 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
+    paddingVertical: 13,
+    borderRadius: 14,
+    borderWidth: 1.2,
   },
   popupActionBtnText: {
-    fontSize: 13.5,
+    fontSize: 14,
+  },
+  customDhikrInputBox: {
+    width: '100%',
+    minHeight: 80,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    padding: 14,
+    fontSize: 14.5,
+    lineHeight: 22,
+    textAlignVertical: 'top',
+    marginBottom: 18,
   },
 });
