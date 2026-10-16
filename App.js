@@ -22,7 +22,7 @@ import * as Notifications from 'expo-notifications';
 import * as Updates from 'expo-updates';
 import * as Location from 'expo-location';
 import { Magnetometer } from 'expo-sensors';
-import { Coordinates, CalculationMethod, PrayerTimes, SunnahTimes } from 'adhan';
+import { Coordinates, CalculationMethod, PrayerTimes, SunnahTimes, Qibla } from 'adhan';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
@@ -325,29 +325,62 @@ export default function App() {
     return () => clearInterval(timer);
   }, [prayerTimesData]);
 
-  // تشغيل مستشعر البوصلة عند فتح تبويب القبلة
+  // تشغيل مستشعر البوصلة وتحديد القبلة بدقة عالية
   useEffect(() => {
-    let subscription = null;
+    let headingSub = null;
+    let magnetometerSub = null;
+    let isSubscribed = true;
 
     if (activeTab === 'qibla') {
-      Magnetometer.isAvailableAsync().then((available) => {
-        setHasMagnetometer(available);
-        if (available) {
-          Magnetometer.setUpdateInterval(80);
-          subscription = Magnetometer.addListener((data) => {
-            let { x, y } = data;
-            let angle = Math.atan2(x, y) * (180 / Math.PI);
-            if (angle < 0) angle += 360;
-            setHeading(Math.round(angle));
-          });
+      const initCompass = async () => {
+        try {
+          // 1. محاولة استخدام مستشعر البوصلة المدمج من expo-location (دقة عالية وتصحيح انحراف)
+          const { status } = await Location.getForegroundPermissionsAsync();
+          if (status === 'granted') {
+            try {
+              headingSub = await Location.watchHeadingAsync((hData) => {
+                if (!isSubscribed) return;
+                const h =
+                  hData.trueHeading >= 0 ? hData.trueHeading : hData.magneticHeading;
+                if (typeof h === 'number' && !isNaN(h)) {
+                  setHeading(Math.round(h));
+                  setHasMagnetometer(true);
+                }
+              });
+              return;
+            } catch (e) {
+              console.log('watchHeadingAsync fallback to Magnetometer', e);
+            }
+          }
+
+          // 2. إذا لم تتوفر الصلاحية أو لم يدعم الهاتف watchHeading، نستخدم Magnetometer مع تصحيح المحاور
+          const available = await Magnetometer.isAvailableAsync();
+          if (!isSubscribed) return;
+          setHasMagnetometer(available);
+          if (available) {
+            Magnetometer.setUpdateInterval(80);
+            magnetometerSub = Magnetometer.addListener((data) => {
+              if (!isSubscribed) return;
+              let { x, y } = data;
+              // في هواتف أندرويد وآيفون: المحور Y للأعلى والمحور X لليمين
+              // الزاوية باتجاه عقارب الساعة من الشمال: Math.atan2(-x, y)
+              let angle = Math.atan2(-x, y) * (180 / Math.PI);
+              if (angle < 0) angle += 360;
+              setHeading(Math.round(angle));
+            });
+          }
+        } catch (err) {
+          console.log('Error initializing compass', err);
         }
-      });
+      };
+
+      initCompass();
     }
 
     return () => {
-      if (subscription) {
-        subscription.remove();
-      }
+      isSubscribed = false;
+      if (headingSub && headingSub.remove) headingSub.remove();
+      if (magnetometerSub && magnetometerSub.remove) magnetometerSub.remove();
     };
   }, [activeTab]);
 
@@ -504,18 +537,9 @@ export default function App() {
       setPrayerTimesData(prayerTimes);
       updatePrayerCountdown(prayerTimes);
 
-      // حساب زاوية القبلة
-      const phi1 = (lat * Math.PI) / 180;
-      const phi2 = (KAABA_COORDS.latitude * Math.PI) / 180;
-      const deltaLambda = ((KAABA_COORDS.longitude - lng) * Math.PI) / 180;
-
-      const y = Math.sin(deltaLambda) * Math.cos(phi2);
-      const x =
-        Math.cos(phi1) * Math.sin(phi2) -
-        Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
-
-      let qibla = (Math.atan2(y, x) * 180) / Math.PI;
-      setQiblaAngle(Math.round((qibla + 360) % 360));
+      // حساب زاوية القبلة الدقيقة فلكياً باستخدام خوارزمية adhan المعتمدة
+      const qiblaCalc = Qibla(coordinates);
+      setQiblaAngle(Math.round(qiblaCalc));
     } catch (error) {
       console.log('Error calculating prayer times', error);
     }
@@ -904,8 +928,15 @@ export default function App() {
   };
 
   const selectedDhikr = adhkarList[selectedIndex] || DEFAULT_ADHKAR[0];
-  const relativeQiblaAngle = (qiblaAngle - heading + 360) % 360;
-  const isFacingQibla = relativeQiblaAngle <= 4 || relativeQiblaAngle >= 356;
+
+  // حساب الفرق الزاوي الدقيق بين اتجاه الهاتف وزاوية القبلة
+  let rawDiff = (qiblaAngle - heading + 360) % 360;
+  if (rawDiff > 180) {
+    rawDiff = rawDiff - 360;
+  }
+  const isFacingQibla = Math.abs(rawDiff) <= 5;
+  const qiblaTurnDirection = isFacingQibla ? 'aligned' : rawDiff > 0 ? 'right' : 'left';
+  const qiblaTurnDegrees = Math.abs(Math.round(rawDiff));
 
   // قائمة الصلوات للعرض في بطاقات أنيقة
   const prayerDisplayList = prayerTimesData
@@ -1504,27 +1535,49 @@ export default function App() {
           </View>
 
           <View style={styles.compassContainer}>
+            {/* شارة التوجيه الديناميكية الذكية */}
             <View
               style={[
                 styles.qiblaAlignBadge,
                 {
-                  backgroundColor: isFacingQibla ? '#0F683D' : theme.emeraldLight,
-                  borderColor: isFacingQibla ? theme.goldAccent : 'transparent',
+                  backgroundColor: isFacingQibla ? '#0F683D' : theme.cardBg,
+                  borderColor: isFacingQibla ? theme.goldAccent : theme.cardBorder,
+                  elevation: isFacingQibla ? 6 : 2,
                 },
               ]}
             >
               <Text
                 style={[
                   styles.qiblaAlignBadgeText,
-                  { color: isFacingQibla ? '#FFFFFF' : theme.emeraldMain },
+                  { color: isFacingQibla ? '#FFFFFF' : theme.textPrimary },
                 ]}
               >
                 {isFacingQibla
-                  ? '✨ أنت الآن باتجاه القبلة تماماً نحو الكعبة المشرفة 🕋'
-                  : 'أدر هاتفك حتى تتطابق الكعبة مع السهم الذهبي في الأعلى'}
+                  ? '✨ أنت الآن باتجاه القبلة تماماً نحو الكعبة المشرفة 🕋 ✨'
+                  : qiblaTurnDirection === 'right'
+                  ? `أدر هاتفك ${qiblaTurnDegrees}° نحو اليمين ↻`
+                  : `أدر هاتفك ${qiblaTurnDegrees}° نحو اليسار ↺`}
               </Text>
             </View>
 
+            {/* سهم مقدمة الهاتف الثابت في الأعلى */}
+            <View style={styles.phoneAimWrapper}>
+              <Ionicons
+                name="caret-down"
+                size={28}
+                color={isFacingQibla ? theme.goldAccent : theme.emeraldMain}
+              />
+              <Text
+                style={[
+                  styles.phoneAimLabel,
+                  { color: isFacingQibla ? theme.goldAccent : theme.textSecondary },
+                ]}
+              >
+                مقدمة الهاتف
+              </Text>
+            </View>
+
+            {/* قرص البوصلة الذي يدور ليطابق الاتجاهات الجغرافية الواقعية */}
             <View
               style={[
                 styles.compassDialOuter,
@@ -1535,46 +1588,147 @@ export default function App() {
                 },
               ]}
             >
-              <Text style={[styles.directionNorth, { color: theme.danger }]}>ش</Text>
-              <Text style={[styles.directionEast, { color: theme.textSecondary }]}>ق</Text>
-              <Text style={[styles.directionSouth, { color: theme.textSecondary }]}>ج</Text>
-              <Text style={[styles.directionWest, { color: theme.textSecondary }]}>غ</Text>
-
               <View
                 style={[
-                  styles.compassRotatingContainer,
+                  styles.compassRotatingDial,
                   {
-                    transform: [{ rotate: `${relativeQiblaAngle}deg` }],
+                    transform: [{ rotate: `${-heading}deg` }],
                   },
                 ]}
               >
-                <View style={styles.kaabaPointerWrap}>
-                  <View style={styles.kaabaIconBox}>
-                    <Text style={styles.kaabaEmoji}>🕋</Text>
-                  </View>
-                  <View style={[styles.pointerNeedle, { backgroundColor: theme.goldAccent }]} />
+                {/* علامة الشمال باللون الأحمر البارز */}
+                <View style={styles.directionNorthWrap}>
+                  <Text style={[styles.directionNorth, { color: theme.danger }]}>ش</Text>
+                  <View style={[styles.northDot, { backgroundColor: theme.danger }]} />
                 </View>
 
+                {/* باقي الاتجاهات الشرق، الجنوب، الغرب */}
+                <Text style={[styles.directionEast, { color: theme.textSecondary }]}>ق</Text>
+                <Text style={[styles.directionSouth, { color: theme.textSecondary }]}>ج</Text>
+                <Text style={[styles.directionWest, { color: theme.textSecondary }]}>غ</Text>
+
+                {/* مؤشر الكعبة الشريفة الثابت على قرص البوصلة عند زاوية القبلة لمدينتك */}
+                <View
+                  style={[
+                    styles.kaabaNeedleContainer,
+                    {
+                      transform: [{ rotate: `${qiblaAngle}deg` }],
+                    },
+                  ]}
+                >
+                  <View style={styles.kaabaPointerWrap}>
+                    <View
+                      style={[
+                        styles.kaabaIconBox,
+                        isFacingQibla && {
+                          backgroundColor: '#0F683D',
+                          borderColor: theme.goldAccent,
+                          elevation: 6,
+                        },
+                      ]}
+                    >
+                      <Text style={styles.kaabaEmoji}>🕋</Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.pointerNeedle,
+                        {
+                          backgroundColor: isFacingQibla ? theme.goldAccent : '#CBA258',
+                        },
+                      ]}
+                    />
+                  </View>
+                </View>
+
+                {/* المركز الأنيق للبوصلة */}
                 <View
                   style={[
                     styles.compassCenterPivot,
                     {
-                      backgroundColor: theme.emeraldMain,
+                      backgroundColor: isFacingQibla ? '#0F683D' : theme.cardBg,
                       borderColor: theme.goldAccent,
                     },
                   ]}
                 >
-                  <Ionicons name="navigate" size={20} color="#FFFFFF" />
+                  <Ionicons
+                    name="compass"
+                    size={22}
+                    color={isFacingQibla ? '#FFFFFF' : theme.goldAccent}
+                  />
                 </View>
               </View>
             </View>
 
-            <View style={styles.degreeDisplayWrap}>
-              <Text style={[styles.degreeBigText, { color: theme.textPrimary }]}>
-                {heading}°
-              </Text>
-              <Text style={[styles.degreeSmallText, { color: theme.textSecondary }]}>
-                اتجاه الهاتف الحالي
+            {/* بطاقات البيانات الرقمية التوضيحية */}
+            <View style={styles.qiblaStatsRow}>
+              <View
+                style={[
+                  styles.qiblaStatCard,
+                  { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+                ]}
+              >
+                <Text style={[styles.qiblaStatTitle, { color: theme.textSecondary }]}>
+                  زاوية القبلة
+                </Text>
+                <Text style={[styles.qiblaStatValue, { color: theme.emeraldMain }]}>
+                  {qiblaAngle}°
+                </Text>
+                <Text style={[styles.qiblaStatSub, { color: theme.textSecondary }]}>
+                  {qiblaAngle >= 90 && qiblaAngle <= 180
+                    ? 'جنوب شرق'
+                    : qiblaAngle > 180 && qiblaAngle <= 270
+                    ? 'جنوب غرب'
+                    : 'شمال'}
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.qiblaStatCard,
+                  { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+                ]}
+              >
+                <Text style={[styles.qiblaStatTitle, { color: theme.textSecondary }]}>
+                  اتجاه الهاتف
+                </Text>
+                <Text
+                  style={[
+                    styles.qiblaStatValue,
+                    { color: isFacingQibla ? theme.emeraldMain : theme.textPrimary },
+                  ]}
+                >
+                  {heading}°
+                </Text>
+                <Text style={[styles.qiblaStatSub, { color: theme.textSecondary }]}>
+                  {heading >= 338 || heading < 23
+                    ? 'شمال'
+                    : heading >= 23 && heading < 68
+                    ? 'شمال شرق'
+                    : heading >= 68 && heading < 113
+                    ? 'شرق'
+                    : heading >= 113 && heading < 158
+                    ? 'جنوب شرق'
+                    : heading >= 158 && heading < 203
+                    ? 'جنوب'
+                    : heading >= 203 && heading < 248
+                    ? 'جنوب غرب'
+                    : heading >= 248 && heading < 293
+                    ? 'غرب'
+                    : 'شمال غرب'}
+                </Text>
+              </View>
+            </View>
+
+            {/* تلميح المعايرة لضمان أعلى دقة */}
+            <View
+              style={[
+                styles.calibrationTipCard,
+                { backgroundColor: theme.cardBg, borderColor: theme.cardBorder },
+              ]}
+            >
+              <MaterialCommunityIcons name="rotate-3d-variant" size={20} color={theme.goldAccent} />
+              <Text style={[styles.calibrationTipText, { color: theme.textSecondary }]}>
+                للحصول على أعلى دقة: احمل الهاتف أفقياً بعيداً عن المعادن، وحركه على شكل (∞) لمعايرة الحساسات.
               </Text>
             </View>
 
@@ -1582,8 +1736,7 @@ export default function App() {
               <View style={[styles.sensorWarningBox, { backgroundColor: theme.dangerBg }]}>
                 <Ionicons name="warning-outline" size={16} color={theme.danger} />
                 <Text style={[styles.sensorWarningText, { color: theme.danger }]}>
-                  جهازك لا يحتوي على مستشعر بوصلة مغناطيسي. زاوية القبلة الدقيقة لمدينتك هي{' '}
-                  {qiblaAngle}° من الشمال.
+                  جهازك لا يحتوي على مستشعر بوصلة مغناطيسي مدمج. يمكنك الاستعانة بزاوية القبلة الموضحة أعلاه ({qiblaAngle}°) لتحديد الاتجاه يدوياً.
                 </Text>
               </View>
             )}
@@ -2560,23 +2713,36 @@ const styles = StyleSheet.create({
   },
   qiblaAlignBadge: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginBottom: 20,
-    borderWidth: 1,
+    paddingVertical: 10,
+    borderRadius: 22,
+    marginBottom: 10,
+    borderWidth: 1.2,
+    maxWidth: 340,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   qiblaAlignBadgeText: {
-    fontSize: 12.5,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
     textAlign: 'center',
+    lineHeight: 20,
+  },
+  phoneAimWrapper: {
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  phoneAimLabel: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    marginTop: -4,
   },
   compassDialOuter: {
-    width: width * 0.72,
-    height: width * 0.72,
+    width: width * 0.74,
+    height: width * 0.74,
     maxWidth: 290,
     maxHeight: 290,
     borderRadius: 145,
-    borderWidth: 4,
+    borderWidth: 3.5,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
@@ -2585,11 +2751,27 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 10,
   },
-  directionNorth: {
+  compassRotatingDial: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  directionNorthWrap: {
     position: 'absolute',
-    top: 10,
+    top: 8,
+    alignItems: 'center',
+  },
+  directionNorth: {
     fontSize: 16,
     fontWeight: '900',
+  },
+  northDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginTop: 2,
   },
   directionEast: {
     position: 'absolute',
@@ -2609,7 +2791,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  compassRotatingContainer: {
+  kaabaNeedleContainer: {
+    position: 'absolute',
     width: '100%',
     height: '100%',
     alignItems: 'center',
@@ -2617,7 +2800,7 @@ const styles = StyleSheet.create({
   },
   kaabaPointerWrap: {
     position: 'absolute',
-    top: 18,
+    top: 14,
     alignItems: 'center',
   },
   kaabaIconBox: {
@@ -2635,44 +2818,76 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   pointerNeedle: {
-    width: 4,
-    height: 60,
+    width: 3.5,
+    height: 58,
     borderRadius: 2,
     marginTop: 2,
   },
   compassCenterPivot: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 2,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 2.5,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 4,
+    elevation: 5,
   },
-  degreeDisplayWrap: {
+  qiblaStatsRow: {
+    flexDirection: 'row-reverse',
+    gap: 12,
+    marginTop: 18,
+    width: '100%',
+    maxWidth: 340,
+  },
+  qiblaStatCard: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
     alignItems: 'center',
-    marginTop: 16,
   },
-  degreeBigText: {
-    fontSize: 28,
-    fontWeight: '900',
-  },
-  degreeSmallText: {
+  qiblaStatTitle: {
     fontSize: 12,
+    marginBottom: 4,
+  },
+  qiblaStatValue: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  qiblaStatSub: {
+    fontSize: 11,
     marginTop: 2,
+  },
+  calibrationTipCard: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 14,
+    maxWidth: 340,
+  },
+  calibrationTipText: {
+    flex: 1,
+    fontSize: 11.5,
+    lineHeight: 18,
+    textAlign: 'right',
   },
   sensorWarningBox: {
     flexDirection: 'row-reverse',
     alignItems: 'center',
-    padding: 10,
-    borderRadius: 10,
-    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 14,
     gap: 8,
+    maxWidth: 340,
   },
   sensorWarningText: {
     fontSize: 12,
     flex: 1,
     textAlign: 'right',
+    lineHeight: 18,
   },
   presetCitiesCard: {
     borderRadius: 16,
