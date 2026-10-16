@@ -173,12 +173,106 @@ export default function App() {
   // أنيميشن زر التسبيح
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
+  // حالة شاشة البداية / اللودر الإسلامي الأنيق
+  const [isAppLoading, setIsAppLoading] = useState(true);
+  const splashFadeAnim = useRef(new Animated.Value(1)).current;
+  const splashScaleAnim = useRef(new Animated.Value(0.92)).current;
+  const splashPulseAnim = useRef(new Animated.Value(1)).current;
+
+  // حالة النافذة المنبثقة الإسلامية الأنيقة (Custom Beautiful Popup)
+  const [customPopup, setCustomPopup] = useState({
+    visible: false,
+    title: '',
+    message: '',
+    type: 'info', // 'update' | 'success' | 'danger' | 'info'
+    icon: '',
+    buttons: [],
+  });
+  const popupScaleAnim = useRef(new Animated.Value(0.85)).current;
+  const popupFadeAnim = useRef(new Animated.Value(0)).current;
+
+  const showPopup = ({ title, message, type = 'info', icon, buttons = [] }) => {
+    setCustomPopup({
+      visible: true,
+      title,
+      message,
+      type,
+      icon,
+      buttons: buttons.length ? buttons : [{ text: 'حسناً', style: 'primary', onPress: hidePopup }],
+    });
+    Animated.parallel([
+      Animated.spring(popupScaleAnim, {
+        toValue: 1,
+        friction: 7,
+        tension: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(popupFadeAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const hidePopup = () => {
+    Animated.parallel([
+      Animated.timing(popupScaleAnim, {
+        toValue: 0.88,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(popupFadeAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setCustomPopup((prev) => ({ ...prev, visible: false }));
+    });
+  };
+
   // تهيئة التطبيق عند الفتح لأول مرة
   useEffect(() => {
     loadSavedData();
     setupNotificationSystem();
     checkForAppUpdates(false);
     detectUserLocation();
+
+    // تشغيل أنيميشن النبض الهادئ لشعار الشاشة الترحيبية
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(splashPulseAnim, {
+          toValue: 1.08,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(splashPulseAnim, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
+    Animated.timing(splashScaleAnim, {
+      toValue: 1,
+      duration: 1000,
+      useNativeDriver: true,
+    }).start();
+
+    // إخفاء اللودر بسلاسة بعد اكتمال التهيئة (1.8 ثانية)
+    const splashTimer = setTimeout(() => {
+      Animated.timing(splashFadeAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }).start(() => {
+        setIsAppLoading(false);
+      });
+    }, 1800);
+
+    return () => clearTimeout(splashTimer);
   }, []);
 
   // مؤقت تحديث الساعة والعد التنازلي لمواقيت الصلاة كل ثانية
@@ -455,10 +549,12 @@ export default function App() {
   const checkForAppUpdates = async (showAlertIfNoUpdate = true) => {
     if (__DEV__) {
       if (showAlertIfNoUpdate) {
-        Alert.alert(
-          'وضع التطوير',
-          'ميزة التحديثات الفورية التلقائية تعمل داخل ملف الـ APK المثبت على الهاتف وليس داخل بيئة التطوير.'
-        );
+        showPopup({
+          type: 'info',
+          icon: 'code-working-outline',
+          title: 'وضع التطوير',
+          message: 'ميزة التحديثات الفورية التلقائية تعمل داخل ملف الـ APK المثبت على الهاتف وليس داخل بيئة التطوير.',
+        });
       }
       return;
     }
@@ -469,28 +565,42 @@ export default function App() {
 
       if (update.isAvailable) {
         setHasUpdateAvailable(true);
-        Alert.alert(
-          'تحديث جديد متاح 🚀',
-          'يوجد إصدار جديد للتطبيق يتضمن تحسينات ومزايا جديدة. هل تريد تنزيله وتطبيقه الآن فوراً؟',
-          [
-            { text: 'لاحقاً', style: 'cancel' },
+        showPopup({
+          type: 'update',
+          icon: 'cloud-download-outline',
+          title: 'تحديث جديد متاح 🚀',
+          message: 'يوجد إصدار جديد للتطبيق يتضمن تحسينات ومزايا جديدة. هل تريد تنزيله وتطبيقه الآن فوراً بنقرة واحدة؟',
+          buttons: [
+            { text: 'لاحقاً', style: 'cancel', onPress: hidePopup },
             {
-              text: 'تحديث الآن',
+              text: 'تحديث وتثبيت الآن ✨',
+              style: 'primary',
               onPress: async () => {
+                hidePopup();
                 await downloadAndApplyUpdate();
               },
             },
-          ]
-        );
+          ],
+        });
       } else {
         setHasUpdateAvailable(false);
         if (showAlertIfNoUpdate) {
-          Alert.alert('أحدث إصدار ✅', 'أنت تستخدم أحدث نسخة متوفرة من التطبيق.');
+          showPopup({
+            type: 'success',
+            icon: 'checkmark-circle-outline',
+            title: 'أحدث إصدار ✅',
+            message: 'أنت تستخدم أحدث نسخة متوفرة من التطبيق بكافة الميزات.',
+          });
         }
       }
     } catch (error) {
       if (showAlertIfNoUpdate) {
-        Alert.alert('فحص التحديثات', 'أنت تستخدم أحدث إصدار متوفر حالياً.');
+        showPopup({
+          type: 'success',
+          icon: 'checkmark-circle-outline',
+          title: 'فحص التحديثات',
+          message: 'أنت تستخدم أحدث إصدار متوفر حالياً.',
+        });
       }
     } finally {
       setIsCheckingUpdate(false);
@@ -502,20 +612,29 @@ export default function App() {
     try {
       setIsDownloadingUpdate(true);
       await Updates.fetchUpdateAsync();
-      Alert.alert(
-        'تم تنزيل التحديث بنجاح ✨',
-        'سيتم إعادة تشغيل التطبيق الآن لتطبيق التعديلات الجديدة مباشرة دون الحاجة لإعادة تثبيته.',
-        [
+      showPopup({
+        type: 'success',
+        icon: 'sparkles-outline',
+        title: 'تم تنزيل التحديث بنجاح ✨',
+        message: 'سيتم إعادة تشغيل التطبيق الآن لتطبيق التعديلات الجديدة مباشرة دون الحاجة لإعادة تثبيته.',
+        buttons: [
           {
-            text: 'إعادة التشغيل الآن',
+            text: 'إعادة التشغيل الآن ⚡',
+            style: 'primary',
             onPress: async () => {
+              hidePopup();
               await Updates.reloadAsync();
             },
           },
-        ]
-      );
+        ],
+      });
     } catch (error) {
-      Alert.alert('خطأ في التحديث', 'تعذر تنزيل التحديث حالياً، يرجى المحاولة لاحقاً.');
+      showPopup({
+        type: 'danger',
+        icon: 'alert-circle-outline',
+        title: 'خطأ في التحديث',
+        message: 'تعذر تنزيل التحديث حالياً، يرجى المحاولة لاحقاً.',
+      });
     } finally {
       setIsDownloadingUpdate(false);
     }
@@ -530,7 +649,20 @@ export default function App() {
     }
   };
 
-  // جدولة إشعارات دورية تظهر نص الذكر فقط دون أي عنوان أو مقدمة
+  // دالة تنسيق الإشعار ليظهر بشكل إسلامي فخم وبسيط ومريح للعين
+  const getDhikrNotificationContent = (dhikrItem) => {
+    return {
+      title: `« ${dhikrItem.text} »`,
+      body: dhikrItem.virtue ? `✨ ${dhikrItem.virtue}` : '🌿 أَلَا بِذِكْرِ اللَّهِ تَطْمَئِنُّ الْقُلُوبُ',
+      sound: null,
+      vibrate: [0, 0],
+      channelId: NOTIFICATION_CHANNEL_ID,
+      priority: Notifications.AndroidNotificationPriority.LOW,
+      color: '#0F683D',
+    };
+  };
+
+  // جدولة إشعارات دورية بتصميم إسلامي راقي وبسيط
   const scheduleRotatingNotifications = async (minutes, list) => {
     try {
       await Notifications.cancelAllScheduledNotificationsAsync();
@@ -543,13 +675,7 @@ export default function App() {
       for (let i = 1; i <= 20; i++) {
         const dhikrItem = list[(i - 1) % list.length];
         await Notifications.scheduleNotificationAsync({
-          content: {
-            body: dhikrItem.text,
-            sound: null,
-            vibrate: [0, 0],
-            channelId: NOTIFICATION_CHANNEL_ID,
-            priority: Notifications.AndroidNotificationPriority.LOW,
-          },
+          content: getDhikrNotificationContent(dhikrItem),
           trigger: {
             type: Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 'timeInterval',
             seconds: intervalSec * i,
@@ -562,20 +688,14 @@ export default function App() {
     }
   };
 
-  // تجربة الإشعار الصامت الآن بنص الذكر فقط
+  // تجربة الإشعار الصامت الآن
   const handleTestNotification = async () => {
     try {
       setTestingNotification(true);
       const currentDhikr = adhkarList[selectedIndex] || DEFAULT_ADHKAR[0];
 
       await Notifications.scheduleNotificationAsync({
-        content: {
-          body: currentDhikr.text,
-          sound: null,
-          vibrate: [0, 0],
-          channelId: NOTIFICATION_CHANNEL_ID,
-          priority: Notifications.AndroidNotificationPriority.LOW,
-        },
+        content: getDhikrNotificationContent(currentDhikr),
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 'timeInterval',
           seconds: 2,
@@ -585,14 +705,21 @@ export default function App() {
 
       setTimeout(() => {
         setTestingNotification(false);
-        Alert.alert(
-          'تم إرسال الإشعار بنجاح',
-          'تفقد شريط الإشعارات بالأعلى؛ سيظهر نص الذكر فقط بهدوء وبصرياً دون أي صوت أو اهتزاز.'
-        );
+        showPopup({
+          type: 'success',
+          icon: 'notifications-circle-outline',
+          title: 'تم إرسال الإشعار بنجاح ✨',
+          message: 'تفقد شريط الإشعارات بالأعلى لترى التنسيق الجديد الأنيق والبسيط للذكر وفضله بهدوء تام دون صوت أو اهتزاز.',
+        });
       }, 2500);
     } catch (e) {
       setTestingNotification(false);
-      Alert.alert('خطأ', 'يرجى التأكد من تفعيل صلاحيات الإشعارات للتطبيق.');
+      showPopup({
+        type: 'danger',
+        icon: 'alert-circle-outline',
+        title: 'خطأ',
+        message: 'يرجى التأكد من تفعيل صلاحيات الإشعارات للتطبيق.',
+      });
     }
   };
 
@@ -601,10 +728,12 @@ export default function App() {
     if (val) {
       const { status } = await Notifications.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(
-          'تنبيه الصلاحيات',
-          'يرجى السماح للتطبيق بإرسال الإشعارات حتى يعمل التذكير البصري الصامت.'
-        );
+        showPopup({
+          type: 'info',
+          icon: 'notifications-off-outline',
+          title: 'تنبيه الصلاحيات',
+          message: 'يرجى السماح للتطبيق بإرسال الإشعارات حتى يعمل التذكير البصري الصامت.',
+        });
         setNotificationsEnabled(false);
         AsyncStorage.setItem(STORAGE_KEYS.NOTIF_ENABLED, JSON.stringify(false));
         return;
@@ -646,28 +775,36 @@ export default function App() {
 
   // تصفير الإجمالي الكلي مع تأكيد
   const handleResetTotal = () => {
-    Alert.alert(
-      'تصفير الإجمالي الكلي',
-      'هل أنت متأكد من تصفير مجموع كل التسبيحات نهائياً؟',
-      [
-        { text: 'إلغاء', style: 'cancel' },
+    showPopup({
+      type: 'danger',
+      icon: 'trash-outline',
+      title: 'تصفير الإجمالي الكلي',
+      message: 'هل أنت متأكد من تصفير مجموع كل التسبيحات نهائياً؟',
+      buttons: [
+        { text: 'إلغاء', style: 'cancel', onPress: hidePopup },
         {
           text: 'تأكيد التصفير',
           style: 'destructive',
           onPress: () => {
             setTotalCount(0);
             setCount(0);
+            hidePopup();
           },
         },
-      ]
-    );
+      ],
+    });
   };
 
   // إضافة ذكر مخصص
   const handleAddCustomDhikr = async () => {
     const trimmed = customDhikrInput.trim();
     if (!trimmed) {
-      Alert.alert('تنبيه', 'يرجى كتابة نص الذكر أولاً');
+      showPopup({
+        type: 'info',
+        icon: 'alert-circle-outline',
+        title: 'تنبيه',
+        message: 'يرجى كتابة نص الذكر أو الدعاء أولاً.',
+      });
       return;
     }
 
@@ -690,21 +827,28 @@ export default function App() {
 
   // حذف ذكر مخصص
   const handleDeleteCustomDhikr = (id) => {
-    Alert.alert('حذف الذكر', 'هل تريد حذف هذا الذكر من قائمتك؟', [
-      { text: 'إلغاء', style: 'cancel' },
-      {
-        text: 'حذف',
-        style: 'destructive',
-        onPress: async () => {
-          const updatedList = adhkarList.filter((item) => item.id !== id);
-          setAdhkarList(updatedList);
-          setSelectedIndex(0);
+    showPopup({
+      type: 'danger',
+      icon: 'trash-outline',
+      title: 'حذف الذكر',
+      message: 'هل تريد حذف هذا الذكر من قائمتك؟',
+      buttons: [
+        { text: 'إلغاء', style: 'cancel', onPress: hidePopup },
+        {
+          text: 'حذف',
+          style: 'destructive',
+          onPress: async () => {
+            const updatedList = adhkarList.filter((item) => item.id !== id);
+            setAdhkarList(updatedList);
+            setSelectedIndex(0);
 
-          const customOnly = updatedList.filter((item) => item.isCustom);
-          await AsyncStorage.setItem(STORAGE_KEYS.CUSTOM_ADHKAR, JSON.stringify(customOnly));
+            const customOnly = updatedList.filter((item) => item.isCustom);
+            await AsyncStorage.setItem(STORAGE_KEYS.CUSTOM_ADHKAR, JSON.stringify(customOnly));
+            hidePopup();
+          },
         },
-      },
-    ]);
+      ],
+    });
   };
 
   // سمات الألوان
@@ -1654,6 +1798,172 @@ export default function App() {
           </View>
         </View>
       </Modal>
+
+      {/* شاشة التحميل الإسلامية الأنيقة (Welcome Animated Splash Loader) */}
+      {isAppLoading && (
+        <Animated.View
+          style={[
+            styles.splashOverlay,
+            {
+              backgroundColor: isDarkMode ? '#07140E' : '#0B3B24',
+              opacity: splashFadeAnim,
+            },
+          ]}
+          pointerEvents={isAppLoading ? 'auto' : 'none'}
+        >
+          <Animated.View
+            style={[
+              styles.splashContent,
+              {
+                transform: [{ scale: splashScaleAnim }],
+              },
+            ]}
+          >
+            {/* حلقة التوهج المحيطة بالشعار */}
+            <Animated.View
+              style={[
+                styles.splashRingOuter,
+                {
+                  transform: [{ scale: splashPulseAnim }],
+                },
+              ]}
+            >
+              <View style={styles.splashRingInner}>
+                <MaterialCommunityIcons name="beads" size={52} color="#CBA258" />
+              </View>
+            </Animated.View>
+
+            {/* نصوص الشعار */}
+            <Text style={styles.splashTitle}>مُذكِّر وتَسبيح</Text>
+            <Text style={styles.splashVerse}>﴿ أَلَا بِذِكْرِ اللَّهِ تَطْمَئِنُّ الْقُلُوبُ ﴾</Text>
+
+            {/* شريط التحميل الأنيق */}
+            <View style={styles.splashLoadingWrap}>
+              <ActivityIndicator size="small" color="#CBA258" />
+              <Text style={styles.splashLoadingText}>جاري تهيئة الأذكار والمواقيت...</Text>
+            </View>
+          </Animated.View>
+
+          {/* البسملة في الأسفل */}
+          <View style={styles.splashFooter}>
+            <Text style={styles.splashBismillah}>بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</Text>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* نافذة منبثقة إسلامية مخصصة وفخمة جداً (Custom Islamic Alert / Popup Modal) */}
+      <Modal
+        visible={customPopup.visible}
+        transparent
+        animationType="none"
+        onRequestClose={hidePopup}
+      >
+        <View style={styles.popupOverlay}>
+          <Animated.View
+            style={[
+              styles.popupCard,
+              {
+                backgroundColor: theme.cardBg,
+                borderColor:
+                  customPopup.type === 'update'
+                    ? theme.goldAccent
+                    : customPopup.type === 'danger'
+                    ? theme.danger
+                    : theme.cardBorder,
+                opacity: popupFadeAnim,
+                transform: [{ scale: popupScaleAnim }],
+              },
+            ]}
+          >
+            {/* الأيقونة العلوية الطافية */}
+            <View
+              style={[
+                styles.popupFloatingBadge,
+                {
+                  backgroundColor:
+                    customPopup.type === 'update'
+                      ? theme.goldAccent
+                      : customPopup.type === 'danger'
+                      ? theme.danger
+                      : customPopup.type === 'success'
+                      ? theme.emeraldMain
+                      : theme.emeraldMain,
+                },
+              ]}
+            >
+              <Ionicons
+                name={
+                  customPopup.icon
+                    ? customPopup.icon
+                    : customPopup.type === 'update'
+                    ? 'cloud-download-outline'
+                    : customPopup.type === 'danger'
+                    ? 'alert-circle-outline'
+                    : customPopup.type === 'success'
+                    ? 'checkmark-outline'
+                    : 'information-circle-outline'
+                }
+                size={28}
+                color="#FFFFFF"
+              />
+            </View>
+
+            {/* عنوان التنبيه */}
+            <Text style={[styles.popupTitle, { color: theme.textPrimary }]}>
+              {customPopup.title}
+            </Text>
+
+            {/* نص التنبيه */}
+            <Text style={[styles.popupMessage, { color: theme.textSecondary }]}>
+              {customPopup.message}
+            </Text>
+
+            {/* أزرار التفاعل المنسقة */}
+            <View style={styles.popupActionsRow}>
+              {customPopup.buttons.map((btn, index) => {
+                const isPrimary = btn.style === 'primary';
+                const isDestructive = btn.style === 'destructive';
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.popupActionBtn,
+                      isPrimary && {
+                        backgroundColor: theme.emeraldMain,
+                        borderColor: theme.goldAccent,
+                      },
+                      isDestructive && {
+                        backgroundColor: theme.danger,
+                        borderColor: theme.danger,
+                      },
+                      !isPrimary &&
+                        !isDestructive && {
+                          backgroundColor: theme.emeraldLight,
+                          borderColor: theme.cardBorder,
+                        },
+                    ]}
+                    onPress={btn.onPress || hidePopup}
+                    activeOpacity={0.8}
+                  >
+                    <Text
+                      style={[
+                        styles.popupActionBtnText,
+                        {
+                          color:
+                            isPrimary || isDestructive ? '#FFFFFF' : theme.textPrimary,
+                          fontWeight: isPrimary || isDestructive ? '800' : '600',
+                        },
+                      ]}
+                    >
+                      {btn.text}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </Animated.View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2418,5 +2728,151 @@ const styles = StyleSheet.create({
   modalCancelBtnText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  // أنماط شاشة البداية الإسلامية (Splash Loader)
+  splashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 99999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splashContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splashRingOuter: {
+    width: 126,
+    height: 126,
+    borderRadius: 63,
+    borderWidth: 2,
+    borderColor: 'rgba(203, 162, 88, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    backgroundColor: 'rgba(203, 162, 88, 0.05)',
+  },
+  splashRingInner: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    borderWidth: 2.5,
+    borderColor: '#CBA258',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15, 104, 61, 0.4)',
+    elevation: 8,
+    shadowColor: '#CBA258',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+  },
+  splashTitle: {
+    color: '#FFFFFF',
+    fontSize: 32,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  splashVerse: {
+    color: '#CBA258',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 28,
+  },
+  splashLoadingWrap: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(203, 162, 88, 0.25)',
+  },
+  splashLoadingText: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  splashFooter: {
+    position: 'absolute',
+    bottom: 36,
+  },
+  splashBismillah: {
+    color: 'rgba(255, 255, 255, 0.55)',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  // أنماط النوافذ المنبثقة الإسلامية المخصصة (Custom Popups)
+  popupOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  popupCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 24,
+    paddingHorizontal: 22,
+    paddingTop: 42,
+    paddingBottom: 22,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    position: 'relative',
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+  },
+  popupFloatingBadge: {
+    position: 'absolute',
+    top: -30,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+  },
+  popupTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 10,
+    letterSpacing: 0.3,
+  },
+  popupMessage: {
+    fontSize: 13.5,
+    lineHeight: 23,
+    textAlign: 'center',
+    marginBottom: 22,
+    paddingHorizontal: 6,
+  },
+  popupActionsRow: {
+    flexDirection: 'row-reverse',
+    gap: 10,
+    width: '100%',
+  },
+  popupActionBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  popupActionBtnText: {
+    fontSize: 13.5,
   },
 });
