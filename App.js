@@ -39,6 +39,7 @@ Notifications.setNotificationHandler({
 });
 
 const NOTIFICATION_CHANNEL_ID = 'silent_dhikr_channel_v3';
+const DHIKR_NOTIFICATION_ID = 'daily_dhikr_notification';
 
 // إحداثيات الكعبة المشرفة في مكة المكرمة
 const KAABA_COORDS = {
@@ -424,14 +425,14 @@ export default function App() {
     AsyncStorage.setItem(STORAGE_KEYS.DARK_MODE, JSON.stringify(isDarkMode));
   }, [isDarkMode]);
 
-  // تحديث جدولة الإشعارات عند تغيير الإعدادات
+  // تحديث جدولة الإشعارات عند تغيير الإعدادات أو الذكر المختار
   useEffect(() => {
     if (notificationsEnabled) {
-      scheduleRotatingNotifications(notificationInterval, adhkarList);
+      scheduleRotatingNotifications(notificationInterval, adhkarList, selectedIndex);
     } else {
       cancelAllNotifications();
     }
-  }, [notificationsEnabled, notificationInterval, adhkarList]);
+  }, [notificationsEnabled, notificationInterval, adhkarList, selectedIndex]);
 
   // تحميل البيانات المحفوظة محلياً
   const loadSavedData = async () => {
@@ -485,6 +486,11 @@ export default function App() {
           enableLights: false,
         });
       }
+
+      // تنظيف أي إشعارات قديمة كانت متراكمة في شريط الإشعارات
+      try {
+        await Notifications.dismissAllNotificationsAsync();
+      } catch (_) {}
 
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
@@ -755,10 +761,11 @@ export default function App() {
     }
   };
 
-  // إلغاء كل الإشعارات
+  // إلغاء كل الإشعارات ومسح المعروض منها من شريط الإشعارات
   const cancelAllNotifications = async () => {
     try {
       await Notifications.cancelAllScheduledNotificationsAsync();
+      await Notifications.dismissAllNotificationsAsync();
     } catch (e) {
       console.log('Error canceling notifications', e);
     }
@@ -773,42 +780,44 @@ export default function App() {
       channelId: NOTIFICATION_CHANNEL_ID,
       priority: Notifications.AndroidNotificationPriority.LOW,
       color: '#0F683D',
+      threadIdentifier: 'dhikr_notifications_group',
+      autoDismiss: true,
     };
   };
 
-  // جدولة إشعارات دورية بتصميم إسلامي راقي وبسيط
-  const scheduleRotatingNotifications = async (minutes, list) => {
+  // جدولة إشعار دوري مستمر يستبدل (replace) الإشعار السابق تلقائياً فور نزول كل إشعار ذكر جديد دون أي تراكم
+  const scheduleRotatingNotifications = async (minutes, list, index = selectedIndex) => {
     try {
       await Notifications.cancelAllScheduledNotificationsAsync();
 
       if (!list || list.length === 0) return;
 
       const intervalSec = Math.max(60, minutes * 60);
+      const currentDhikr = list[index] || list[0];
 
-      // جدولة مسبقة لـ 20 إشعاراً قادماً لضمان تنوع الذكر في كل مرة
-      for (let i = 1; i <= 20; i++) {
-        const dhikrItem = list[(i - 1) % list.length];
-        await Notifications.scheduleNotificationAsync({
-          content: getDhikrNotificationContent(dhikrItem),
-          trigger: {
-            type: Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 'timeInterval',
-            seconds: intervalSec * i,
-            repeats: false,
-          },
-        });
-      }
+      await Notifications.scheduleNotificationAsync({
+        identifier: DHIKR_NOTIFICATION_ID,
+        content: getDhikrNotificationContent(currentDhikr),
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 'timeInterval',
+          seconds: intervalSec,
+          repeats: true,
+        },
+      });
     } catch (error) {
-      console.log('Error scheduling rotating notifications', error);
+      console.log('Error scheduling repeating notification', error);
     }
   };
 
-  // تجربة الإشعار الصامت الآن
+  // تجربة الإشعار الصامت الآن مع استبدال أي إشعار سابق فوراً بنفس المعرف
   const handleTestNotification = async () => {
     try {
       setTestingNotification(true);
       const currentDhikr = adhkarList[selectedIndex] || DEFAULT_ADHKAR[0];
 
+      // إرسال الإشعار بنفس المعرف ليستبدل أي إشعار ذكر سابق في شريط الإشعارات فوراً دون تراكم
       await Notifications.scheduleNotificationAsync({
+        identifier: DHIKR_NOTIFICATION_ID,
         content: getDhikrNotificationContent(currentDhikr),
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 'timeInterval',
@@ -823,8 +832,13 @@ export default function App() {
           type: 'success',
           icon: 'notifications-circle-outline',
           title: 'تم إرسال الإشعار بنجاح ✨',
-          message: 'تفقد شريط الإشعارات بالأعلى لترى التنسيق الجديد الأنيق والبسيط للذكر وفضله بهدوء تام دون صوت أو اهتزاز.',
+          message: 'تفقد شريط الإشعارات بالأعلى لترى التنسيق الجديد الأنيق والبسيط للذكر وفضله بهدوء تام دون صوت أو اهتزاز، مع استبدال أي إشعار سابق.',
         });
+
+        // إذا كان التذكير الدوري مفعلاً، نعيد جدولته بعد انتهاء التجربة
+        if (notificationsEnabled) {
+          scheduleRotatingNotifications(notificationInterval, adhkarList, selectedIndex);
+        }
       }, 2500);
     } catch (e) {
       setTestingNotification(false);
