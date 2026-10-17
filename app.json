@@ -33,8 +33,6 @@
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
         "POST_NOTIFICATIONS",
-        "VIBRATE",
-        "SCHEDULE_EXACT_ALARM",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
       ]
@@ -45,7 +43,7 @@
         {
           "icon": "./assets/icon.png",
           "color": "#0F683D",
-          "defaultChannel": "silent_dhikr_channel"
+          "defaultChannel": "silent_dhikr_channel_v3"
         }
       ],
       "expo-font",

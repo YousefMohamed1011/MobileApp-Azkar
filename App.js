@@ -38,7 +38,7 @@ Notifications.setNotificationHandler({
   }),
 });
 
-const NOTIFICATION_CHANNEL_ID = 'silent_dhikr_channel';
+const NOTIFICATION_CHANNEL_ID = 'silent_dhikr_channel_v3';
 
 // إحداثيات الكعبة المشرفة في مكة المكرمة
 const KAABA_COORDS = {
@@ -468,9 +468,15 @@ export default function App() {
   const setupNotificationSystem = async () => {
     try {
       if (Platform.OS === 'android') {
+        // حذف القنوات القديمة حتى لا يحتفظ نظام أندرويد بإعدادات الاهتزاز السابقة
+        try {
+          await Notifications.deleteNotificationChannelAsync('silent_dhikr_channel');
+          await Notifications.deleteNotificationChannelAsync('silent_dhikr_channel_v2');
+        } catch (_) {}
+
         await Notifications.setNotificationChannelAsync(NOTIFICATION_CHANNEL_ID, {
-          name: 'الأذكار',
-          description: 'تنبيهات صامتة بالذكر تظهر على الشاشة بهدوء تام دون صوت أو اهتزاز',
+          name: 'الأذكار والتسابيح الصامتة',
+          description: 'تنبيهات صامتة بالذكر تظهر على الشاشة بهدوء تام دون أي صوت أو اهتزاز نهائياً',
           importance: Notifications.AndroidImportance.LOW,
           sound: null,
           enableVibrate: false,
@@ -758,13 +764,12 @@ export default function App() {
     }
   };
 
-  // دالة تنسيق الإشعار ليظهر بشكل إسلامي فخم وبسيط ومريح للعين
+  // دالة تنسيق الإشعار ليظهر بشكل إسلامي فخم وبسيط ومريح للعين صامت تماماً بدون صوت أو اهتزاز
   const getDhikrNotificationContent = (dhikrItem) => {
     return {
       title: `« ${dhikrItem.text} »`,
       body: dhikrItem.virtue ? `✨ ${dhikrItem.virtue}` : '🌿 أَلَا بِذِكْرِ اللَّهِ تَطْمَئِنُّ الْقُلُوبُ',
-      sound: null,
-      vibrate: [0, 0],
+      sound: false,
       channelId: NOTIFICATION_CHANNEL_ID,
       priority: Notifications.AndroidNotificationPriority.LOW,
       color: '#0F683D',
